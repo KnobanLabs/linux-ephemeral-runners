@@ -1,0 +1,16 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# A safety net for anything that wipes the runner firewall's table; the
+# nftables.service drop-in handles the common case at once.
+
+[Unit]
+Description=Check the ephemeral-runners firewall every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

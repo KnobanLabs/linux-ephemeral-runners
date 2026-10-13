@@ -22,7 +22,7 @@ etc=/etc/ephemeral-runners
 state=/var/lib/ephemeral-runners
 share=/usr/local/share/ephemeral-runners
 bin=/usr/local/bin/ephemeral-runners
-units="ephemeral-runners-firewall.service ephemeral-runners.service ephemeral-runners-images.service ephemeral-runners-images.timer"
+units="ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.service ephemeral-runners-firewall-watch.timer ephemeral-runners.service ephemeral-runners-images.service ephemeral-runners-images.timer"
 
 deployment_name() {
 	name=$(basename "$1" .toml)
@@ -70,15 +70,21 @@ sysctl -q -p /etc/sysctl.d/60-ephemeral-runners.conf
 
 install -d "$share"
 install -m 0644 "$repo/packaging/firewall.nft" "$share/firewall.nft"
+install -m 0755 "$repo/packaging/firewall-watch" "$share/firewall-watch"
+# Anything that flushes the whole nftables ruleset also removes the runner
+# firewall: nftables.service puts it back at once, and the watchdog timer
+# checks every minute for anything else.
+install -d /etc/systemd/system/nftables.service.d
+install -m 0644 "$repo/packaging/nftables-ephemeral-runners.conf" /etc/systemd/system/nftables.service.d/50-ephemeral-runners.conf
 for u in $units; do
 	install -m 0644 "$repo/packaging/$u" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
-systemctl enable -q ephemeral-runners-firewall.service ephemeral-runners-images.timer
+systemctl enable -q ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.timer ephemeral-runners-images.timer
 # Reload, not restart: restarting the firewall would stop the controller,
 # which is bound to it, and cut off any running jobs before the check below.
 systemctl reload-or-restart ephemeral-runners-firewall.service
-systemctl start ephemeral-runners-images.timer
+systemctl start ephemeral-runners-firewall-watch.timer ephemeral-runners-images.timer
 
 # Stage the would-be config and check it before touching the real one.
 stage=$(mktemp -d)

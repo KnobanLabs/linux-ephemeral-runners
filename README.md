@@ -102,7 +102,7 @@ the [security model](#security-model).
 | Host settings (optional) | `/etc/ephemeral-runners/host.toml`, from `host.example.toml` | no; per host |
 | GitHub App private keys | `/etc/ephemeral-runners/keys/<name>.pem` | **never**; `*.pem` is ignored |
 | Controller binary | `/usr/local/bin/ephemeral-runners` | built by `install.sh` |
-| systemd units and firewall | `/etc/systemd/system/ephemeral-runners*`, `/usr/local/share/ephemeral-runners/firewall.nft` | installed by `install.sh` |
+| systemd units and firewall | `/etc/systemd/system/ephemeral-runners*`, `/etc/systemd/system/nftables.service.d/50-ephemeral-runners.conf`, `/usr/local/share/ephemeral-runners/` (rules and watchdog) | installed by `install.sh` |
 | Golden images, VM disks | `/var/lib/ephemeral-runners/images/`, `vms/` | built on the host |
 | Logs | `journalctl -u ephemeral-runners` | no |
 
@@ -254,7 +254,12 @@ limits to know:
   and multicast ranges: services on the host (including ones bound to
   localhost), your LAN, Docker networks and cloud metadata. DNS goes only to
   the host's resolver. VMs share no network with each other. The controller
-  refuses to run if the firewall isn't loaded.
+  refuses to run if the firewall isn't loaded. The rules live in a table of
+  their own, alongside ufw's and Docker's, which touch only their own; but
+  anything that flushes the whole ruleset removes it too. nftables.service
+  puts it back immediately (Ubuntu's flushes on every start, reload and
+  stop), and a watchdog timer checks every minute, restoring the table or,
+  failing that, stopping the runners.
 - **Inside the VM:** jobs run as `runner` with passwordless sudo, like
   GitHub-hosted runners. The VM's single-use runner registration is readable
   from inside the VM; it is valid only for that one job.

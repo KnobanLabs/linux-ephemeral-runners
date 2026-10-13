@@ -10,7 +10,7 @@ set -eu
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root: sudo $0 $*" >&2; exit 1; }
 
-units="ephemeral-runners.service ephemeral-runners-images.timer ephemeral-runners-images.service ephemeral-runners-firewall.service"
+units="ephemeral-runners.service ephemeral-runners-images.timer ephemeral-runners-images.service ephemeral-runners-firewall-watch.timer ephemeral-runners-firewall-watch.service ephemeral-runners-firewall.service"
 # shellcheck disable=SC2086 # word splitting is the point
 systemctl disable --now -q $units 2>/dev/null || true
 if [ "${1:-}" = "--purge" ]; then
@@ -19,6 +19,7 @@ fi
 for u in $units; do
 	rm -f "/etc/systemd/system/$u"
 done
-rm -f /etc/sysctl.d/60-ephemeral-runners.conf
+rm -f /etc/sysctl.d/60-ephemeral-runners.conf /etc/systemd/system/nftables.service.d/50-ephemeral-runners.conf
+rmdir /etc/systemd/system/nftables.service.d 2>/dev/null || true
 systemctl daemon-reload
 echo "Stopped and removed ephemeral-runners"

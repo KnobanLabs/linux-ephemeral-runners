@@ -1,0 +1,11 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+
+[Unit]
+Description=Check that the ephemeral-runners firewall is loaded
+Documentation=https://github.com/KnobanLabs/linux-ephemeral-runners#security-model
+After=ephemeral-runners-firewall.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/share/ephemeral-runners/firewall-watch
