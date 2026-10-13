@@ -21,6 +21,11 @@ RestartSec=30
 TimeoutStopSec=180
 # Stopping the service ends every VM with it.
 KillMode=control-group
+# Jobs use idle CPU and disk freely, but when the host is saturated its own
+# services (default weight 100) get twice the share VMs do, so CI slows down
+# rather than, say, a media server stuttering.
+CPUWeight=50
+IOWeight=50
 
 # The controller and its VMs need /dev/kvm and their state directory, and
 # nothing else on the host.

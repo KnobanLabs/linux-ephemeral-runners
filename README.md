@@ -273,8 +273,15 @@ Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 
 Left unset, the budgets come from the host's hardware: memory is total RAM
 minus `host_reserved_mb` (8 GB by default), vCPUs are 2 × physical cores. On
-a host that also runs other services, set both in `host.toml` so CI can't
-crowd them out. `ephemeral-runners check` prints the budget in use.
+a host that also runs other services, set both in `host.toml`.
+`ephemeral-runners check` prints the budget in use.
+
+Memory is the budget to be careful with: VMs get what they're given, and a
+host that runs out starts killing processes. vCPUs can safely exceed the
+host's threads, because CI is bursty (downloads, image pulls, waiting on
+tests); when jobs do saturate the CPU they share it, and the service's
+`CPUWeight=50` makes them yield to the host's own services, which get twice
+their share.
 
 GitHub's `ubuntu-latest` VM is 4 vCPUs and 16 GB, which is what the example
 pools use. A pool's `max_runners` is an upper bound on top of the budgets, and
