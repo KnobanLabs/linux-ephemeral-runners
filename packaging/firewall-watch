@@ -1,0 +1,28 @@
+#!/bin/sh
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# Puts the runner firewall back if its table has disappeared, as it does
+# after `nft flush ruleset` or after nftables.service loads an
+# /etc/nftables.conf that starts with "flush ruleset". The firewall unit
+# would still report active, since it only loads the rules once, so without
+# this the controller would keep running VMs with no restrictions. If the
+# table can't be restored, the controller is stopped instead.
+#
+# Run as root every minute by ephemeral-runners-firewall-watch.timer.
+set -u
+
+nft list table inet ephemeral_runners >/dev/null 2>&1 && exit 0
+
+# Firewall stopped on purpose: the controller, bound to it, stopped too.
+systemctl is-active -q ephemeral-runners-firewall.service || exit 0
+
+echo "The ephemeral-runners firewall table is missing; restoring it" >&2
+if systemctl reload ephemeral-runners-firewall.service && nft list table inet ephemeral_runners >/dev/null 2>&1; then
+	echo "Restored the ephemeral-runners firewall table" >&2
+	exit 0
+fi
+
+echo "Couldn't restore the ephemeral-runners firewall; stopping the runners so no VM runs unrestricted" >&2
+systemctl stop ephemeral-runners.service ephemeral-runners-images.service
+exit 1
