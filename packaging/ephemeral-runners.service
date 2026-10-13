@@ -26,6 +26,10 @@ KillMode=control-group
 # rather than, say, a media server stuttering.
 CPUWeight=50
 IOWeight=50
+# If the whole host runs out of memory, the kernel kills a job's VM first,
+# not the host's own services. To cap the VMs below that point, add a
+# drop-in with MemoryMax= a little above memory_budget_mb.
+OOMScoreAdjust=500
 
 # The controller and its VMs need /dev/kvm and their state directory, and
 # nothing else on the host.

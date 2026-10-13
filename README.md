@@ -286,7 +286,14 @@ host that runs out starts killing processes. vCPUs can safely exceed the
 host's threads, because CI is bursty (downloads, image pulls, waiting on
 tests); when jobs do saturate the CPU they share it, and the service's
 `CPUWeight=50` makes them yield to the host's own services, which get twice
-their share.
+their share. If memory does run out, `OOMScoreAdjust=500` makes the kernel
+kill a job's VM before anything else; to stop VMs before the host is short at
+all, cap the service a little above the budget (each VM's QEMU process needs
+a few hundred MB on top of its memory):
+
+```bash
+sudo systemctl set-property ephemeral-runners.service MemoryMax=115G
+```
 
 GitHub's `ubuntu-latest` VM is 4 vCPUs and 16 GB, which is what the example
 pools use. A pool's `max_runners` is an upper bound on top of the budgets, and
