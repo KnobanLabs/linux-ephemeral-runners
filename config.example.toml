@@ -1,0 +1,57 @@
+# Deployment template: one org (or repo, or enterprise) that this host runs
+# jobs for. Copy it to <name>.toml outside this repo, where <name> is
+# lowercase letters and digits (it appears in VM names), fill in the YOUR-*
+# values, and install it with
+#   sudo ./scripts/install.sh <name>.toml
+# One host can serve several deployments; they share its capacity. Settings
+# for the host itself go in /etc/ephemeral-runners/host.toml (see
+# host.example.toml). Nothing here is secret; the GitHub App's private key
+# stays out of git.
+
+# Where the runner scale sets register: an org (https://github.com/YOUR-ORG),
+# a single repo (https://github.com/YOUR-ORG/YOUR-REPO, also the only option
+# for personal accounts), or an enterprise (https://github.com/enterprises/YOUR-ENTERPRISE).
+registration_url = "https://github.com/YOUR-ORG"
+# Org runner group. "Default" is the org's own default group, which by
+# default lets every private repo in the org use the runners.
+runner_group = "Default"
+job_timeout = "6h"
+
+# Authenticate as a GitHub App owned by the org (see "Creating the GitHub
+# App" in the README). Keys are per host and per deployment, and never
+# committed. The controller runs as the ephrunner user, which must be able
+# to read the key; install.sh sets that up for keys in /etc/ephemeral-runners/keys/.
+[github_app]
+client_id = "YOUR-APP-CLIENT-ID"
+installation_id = 0
+private_key_path = "/etc/ephemeral-runners/keys/YOUR-DEPLOYMENT-NAME.pem"
+
+# Each pool is a runner scale set; its name is what workflows put in runs-on.
+# Name pools by OS and CPU architecture (and an org prefix if you like), so
+# runners on other hosts, such as ARM64 VMs on a Mac, can register alongside
+# without a clash: two controllers can't serve the same pool name in the same
+# org. Don't use GitHub-hosted labels such as ubuntu-latest.
+#
+# image names a golden image in /var/lib/ephemeral-runners/images/.
+# ubuntu-<version> images are built (and rebuilt weekly) by
+# `ephemeral-runners build-image`.
+
+# Like GitHub's ubuntu-latest / ubuntu-24.04: 4 vCPUs, 16 GB.
+[[pool]]
+name = "kvm-ubuntu-x64"
+image = "ubuntu-24.04"
+cpu = 4
+memory_mb = 16384
+# An upper bound; the host budget usually limits concurrency first.
+max_runners = 8
+# Booted VMs kept waiting for jobs. Skips the ~10 s boot, but each one holds
+# its memory and CPU while idle.
+min_idle = 0
+
+[[pool]]
+name = "kvm-ubuntu-26.04-x64"
+image = "ubuntu-26.04"
+cpu = 4
+memory_mb = 16384
+max_runners = 8
+min_idle = 0

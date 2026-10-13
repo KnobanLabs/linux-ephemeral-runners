@@ -1,0 +1,14 @@
+#!/bin/sh
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# Hands this VM's single-use runner registration, which the host attaches as
+# the read-only disk /dev/eph-jit (readable by root only), to the runner user.
+# The registration is the disk's first line; zeros pad the rest.
+set -eu
+install -d -m 0700 -o runner -g runner /run/eph-runner
+umask 077
+head -n 1 /dev/eph-jit | tr -d '\000' >/run/eph-runner/jit
+chown runner:runner /run/eph-runner/jit
+chmod 0400 /run/eph-runner/jit
+[ -s /run/eph-runner/jit ] || { echo "The registration disk is empty" >&2; exit 1; }

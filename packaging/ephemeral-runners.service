@@ -1,0 +1,50 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+
+[Unit]
+Description=Ephemeral GitHub Actions runners (one QEMU/KVM VM per job)
+Documentation=https://github.com/KnobanLabs/linux-ephemeral-runners
+Wants=network-online.target
+After=network-online.target ephemeral-runners-firewall.service
+# Never run VMs without the firewall: if it stops, so does this.
+BindsTo=ephemeral-runners-firewall.service
+
+[Service]
+Type=exec
+User=ephrunner
+Group=ephrunner
+SupplementaryGroups=kvm
+ExecStart=/usr/local/bin/ephemeral-runners -config-dir /etc/ephemeral-runners run
+Restart=always
+RestartSec=30
+# Must exceed drain_timeout in host.toml.
+TimeoutStopSec=180
+# Stopping the service ends every VM with it.
+KillMode=control-group
+
+# The controller and its VMs need /dev/kvm and their state directory, and
+# nothing else on the host.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ephemeral-runners
+ProtectHome=yes
+PrivateTmp=yes
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

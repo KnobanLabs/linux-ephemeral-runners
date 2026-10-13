@@ -1,0 +1,11 @@
+#!/bin/sh
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# Starts the runner for its one job, as the runner user. The registration is
+# read into the environment and its file deleted before the job can run.
+set -eu
+JIT=$(cat /run/eph-runner/jit)
+rm -f /run/eph-runner/jit
+cd /home/runner/actions-runner
+ACTIONS_RUNNER_INPUT_JITCONFIG="$JIT" exec ./run.sh

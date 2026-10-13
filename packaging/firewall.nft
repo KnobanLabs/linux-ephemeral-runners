@@ -1,0 +1,70 @@
+#!/usr/sbin/nft -f
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# What jobs can reach. VMs use QEMU's user-mode networking, so everything a
+# VM sends leaves the host as traffic from its QEMU process, which runs as
+# the ephrunner user. This table lets that user reach the internet, and
+# nothing on this host, the local network or other private ranges: no
+# services listening here, no LAN, no NAS. DNS goes through the host's own
+# resolver, which QEMU forwards guest lookups to.
+#
+# Blocked connections are refused at once, so a job probing the network
+# fails fast instead of waiting for a timeout.
+#
+# It's a table of its own, so loading it never touches Docker's rules or
+# anyone else's. ephemeral-runners-firewall.service loads it, and the
+# controller won't run without it.
+
+table inet ephemeral_runners
+delete table inet ephemeral_runners
+
+table inet ephemeral_runners {
+	set local4 {
+		type ipv4_addr
+		flags interval
+		elements = {
+			0.0.0.0/8,       # "this network"
+			10.0.0.0/8,      # private
+			100.64.0.0/10,   # carrier-grade NAT, Tailscale
+			127.0.0.0/8,     # this host's loopback services
+			169.254.0.0/16,  # link-local, cloud metadata services
+			172.16.0.0/12,   # private, Docker networks
+			192.0.0.0/24,
+			192.168.0.0/16,  # private, most home and office LANs
+			198.18.0.0/15,   # benchmarking
+			224.0.0.0/3,     # multicast and reserved
+		}
+	}
+
+	set local6 {
+		type ipv6_addr
+		flags interval
+		elements = {
+			::1/128,         # loopback
+			::ffff:0:0/96,   # IPv4-mapped, so the rules for IPv4 can't be bypassed
+			64:ff9b::/96,    # NAT64
+			fc00::/7,        # unique local
+			fe80::/10,       # link-local
+			ff00::/8,        # multicast
+		}
+	}
+
+	chain output {
+		type filter hook output priority filter; policy accept;
+
+		# Only packets that belong to the runner user's sockets are
+		# restricted. The resets and ICMP errors the rules below send back
+		# have no socket, so they pass, and blocked connections fail at once.
+		meta skuid "ephrunner" jump ephrunner
+	}
+
+	chain ephrunner {
+		ip daddr { 127.0.0.53, 127.0.0.54 } meta l4proto { tcp, udp } th dport 53 accept
+
+		ip daddr @local4 meta l4proto tcp counter reject with tcp reset
+		ip daddr @local4 counter reject with icmpx admin-prohibited
+		ip6 daddr @local6 meta l4proto tcp counter reject with tcp reset
+		ip6 daddr @local6 counter reject with icmpx admin-prohibited
+	}
+}

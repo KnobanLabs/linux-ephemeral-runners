@@ -1,0 +1,46 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+# (https://github.com/KnobanLabs/linux-ephemeral-runners)
+
+name: ~PR Preparation
+
+# pull_request_target runs this file from the base branch, with a token that
+# can write to fork pull requests too, which labelling needs. That is safe only
+# because no job checks out or runs the pull request's code: both run pinned
+# actions that read the pull request through the API. Keep it that way. Its
+# jobs take seconds, so a concurrency group would save nothing.
+on: # zizmor: ignore[dangerous-triggers,concurrency-limits]
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+
+permissions: {}
+
+jobs:
+  # The job id is the required check's name, so it gets no `name:`. This file
+  # never runs in the merge queue, so merge_queue.yaml reports the same check
+  # there under the same job id.
+  pr-lint-title: # zizmor: ignore[anonymous-definition]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read # To read the pull request's title.
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  pr-label:
+    name: Label the pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read # To read the labeler configuration.
+      pull-requests: write # To add and remove the pull request's labels.
+    steps:
+      - uses: actions/labeler@bf12e9b00b37c5c0ca2b87b79b2daf7891dbda13 # v7.0.0
+        with:
+          sync-labels: true
+          configuration-path: .github/labeler.yaml

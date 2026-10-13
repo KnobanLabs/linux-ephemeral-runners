@@ -1,0 +1,7 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# A job VM gets its single-use runner registration as a small read-only disk
+# with serial "eph-jit". When it appears, name it /dev/eph-jit and start the
+# one-job runner service. VMs without it (the image build) never start it.
+SUBSYSTEM=="block", KERNEL=="vd*[!0-9]", ATTRS{serial}=="eph-jit", SYMLINK+="eph-jit", TAG+="systemd", ENV{SYSTEMD_WANTS}+="eph-runner.service"

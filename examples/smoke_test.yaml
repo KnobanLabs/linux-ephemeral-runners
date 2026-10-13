@@ -1,0 +1,57 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+# (https://github.com/KnobanLabs/linux-ephemeral-runners)
+
+# Runs 3 jobs on each pool at once and proves every job gets a fresh VM:
+# the marker file one job writes must never be visible to another.
+#
+# Copy this into .github/workflows/ of a PRIVATE repo that can use your
+# runners, never into a public one.
+# Pools come from the input, or else from the EPHEMERAL_RUNNER_POOLS
+# repository (or org) variable, e.g. ["kvm-ubuntu-x64", "kvm-ubuntu-26.04-x64"].
+name: smoke-test
+
+permissions: {}
+
+on:
+  workflow_dispatch:
+    inputs:
+      pools:
+        description: 'JSON list of pool names (default: vars.EPHEMERAL_RUNNER_POOLS)'
+        required: false
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        pool: ${{ fromJSON(inputs.pools || vars.EPHEMERAL_RUNNER_POOLS || '[]') }}
+        id: [1, 2, 3]
+    runs-on: ${{ matrix.pool }}
+    timeout-minutes: 15
+    permissions:
+      contents: read # To check out the repository.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fresh machine
+        run: |
+          set -eux
+          uname -a
+          test ! -e "$HOME/.eph-marker" || { echo "State leaked from a previous job"; exit 1; }
+          date > "$HOME/.eph-marker"
+          ls "$GITHUB_WORKSPACE"
+      - name: Toolchain
+        run: |
+          docker run --rm hello-world
+      - name: Network isolation
+        run: |
+          set -x
+          # The internet works...
+          curl -fsS -o /dev/null https://api.github.com
+          # ...but nothing on the host does. 10.0.2.2 is QEMU's address for
+          # the host; its SSH server (port 22) must refuse the VM.
+          if timeout 10 bash -c 'exec 3<>/dev/tcp/10.0.2.2/22'; then
+            echo "The VM reached a service on the host"; exit 1
+          fi

@@ -1,0 +1,29 @@
+# Settings for this host, shared by every deployment it serves. Optional:
+# without /etc/ephemeral-runners/host.toml, every value below is the default.
+# Copy this file there to change something; it's per machine, so
+# scripts/install.sh never overwrites it.
+
+# Capacity. Left out, the budgets come from this host's hardware:
+#   memory: total RAM minus host_reserved_mb
+#   vCPUs:  2 x physical cores
+# On a host that also runs other services, set both explicitly so jobs can't
+# crowd them out.
+# host_reserved_mb = 8192
+# memory_budget_mb = 49152
+# vcpu_budget = 8
+
+# Golden images (images/<name>.qcow2) and running VMs' disks (vms/<vm>/).
+# Overlays are copy-on-write: each job costs only the disk it writes.
+state_dir = "/var/lib/ephemeral-runners"
+
+qemu = "qemu-system-x86_64"
+
+# VM directories named "<vm_prefix>-*" belong to this controller; leftovers
+# are deleted on startup.
+vm_prefix = "eph"
+
+# How long stopping the controller waits for running jobs to finish. The
+# systemd unit's TimeoutStopSec must be longer than this.
+drain_timeout = "0s"
+
+log_level = "info"

@@ -1,0 +1,63 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+# (https://github.com/KnobanLabs/linux-ephemeral-runners)
+
+name: Bug Report
+description: A job or runner isn't working correctly
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Include the failing workflow run, and the controller log around it
+        (`journalctl -u ephemeral-runners` on the runner host).
+
+  - type: input
+    id: run
+    attributes:
+      label: Workflow Run
+      description: Link to the affected run or job, if there is one.
+      placeholder: https://github.com/<org>/<repo>/actions/runs/...
+
+  - type: input
+    id: pool
+    attributes:
+      label: Deployment & Pool
+      description: The deployment name and the pool the job used (its runs-on).
+      placeholder: 'acme / kvm-ubuntu-x64'
+    validations:
+      required: true
+
+  - type: input
+    id: host
+    attributes:
+      label: Runner Host
+      description: CPU, RAM, and Linux distribution and kernel of the host running the controller.
+      placeholder: 'Intel i7-8700K, 128 GB, Ubuntu 24.04, kernel 6.8'
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Queue 4 jobs on kvm-ubuntu-x64
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Controller Log
+      description: The lines from the controller log around the problem.
+      render: text

@@ -1,0 +1,30 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+# (https://github.com/KnobanLabs/linux-ephemeral-runners)
+
+name: ~Merge Queue
+
+# The merge queue waits for every required check on each group it builds.
+# pr_preparation.yaml runs only on pull requests, so its title check would never
+# report on a group, and every pull request would wait in the queue until it
+# timed out. This workflow reports that check there. It checks out nothing, and
+# its one job takes seconds, so a concurrency group would save nothing.
+on: # zizmor: ignore[concurrency-limits]
+  merge_group:
+    branches:
+      - develop
+
+permissions: {}
+
+jobs:
+  # The queue takes only a pull request whose required checks passed, so its
+  # title passed pr_preparation.yaml's lint before it joined. The job id is the
+  # required check's name, so it gets no `name:`, and it must stay the same as
+  # the job id in pr_preparation.yaml.
+  pr-lint-title: # zizmor: ignore[anonymous-definition]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Pass the title check
+        run: echo "The title passed its lint on the pull request."

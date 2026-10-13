@@ -1,0 +1,16 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# Weekly, so images carry current security updates and an Actions runner
+# GitHub still accepts (runners don't update themselves here).
+
+[Unit]
+Description=Weekly rebuild of ephemeral-runners golden images
+
+[Timer]
+OnCalendar=Sun 04:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

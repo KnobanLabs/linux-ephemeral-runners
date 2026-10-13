@@ -1,0 +1,22 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# Runs the GitHub Actions runner for exactly one job, then powers the VM off,
+# which ends its QEMU process on the host. Not enabled: 90-eph-runner.rules
+# starts it when the registration disk appears, so only job VMs run it.
+
+[Unit]
+Description=GitHub Actions runner for one job
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=exec
+User=runner
+Group=runner
+ExecStartPre=+/usr/local/libexec/eph-runner-prepare
+ExecStart=/usr/local/libexec/eph-runner-start
+ExecStopPost=+/usr/bin/systemctl poweroff --no-block
+# The host watches the console for "Listening for Jobs".
+StandardOutput=journal+console
+StandardError=journal+console

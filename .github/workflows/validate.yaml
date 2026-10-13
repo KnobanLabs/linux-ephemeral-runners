@@ -1,0 +1,79 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+# (https://github.com/KnobanLabs/linux-ephemeral-runners)
+
+name: Validate Branch
+
+permissions: {}
+
+on:
+  pull_request:
+    branches:
+      - develop
+  merge_group:
+    branches:
+      - develop
+  workflow_dispatch:
+
+# A new push cancels a pull request's run. Each merge queue group has a ref of
+# its own, so one queue run never cancels another.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read # To check out the repository.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Build
+        run: go build -o /dev/null .
+
+      - name: Lint shell scripts
+        run: shellcheck scripts/*.sh images/provision.sh images/eph-runner-prepare images/eph-runner-start
+
+  # The job id is the required check's name, so it gets no `name:`.
+  validation-outcome: # zizmor: ignore[anonymous-definition]
+    needs: [validate]
+    # A skipped required check counts as passing, so this job must run even
+    # when the run is cancelled, and fail on anything short of success.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      - name: Validation Failure
+        if:
+          ${{ contains(needs.*.result, 'failure') || contains(needs.*.result,
+          'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          echo "One or more jobs failed, were cancelled, or were skipped."
+          exit 1
+      - name: Validation Success
+        run: echo "All jobs completed successfully."

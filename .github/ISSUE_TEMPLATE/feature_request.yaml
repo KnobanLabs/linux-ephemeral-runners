@@ -1,0 +1,40 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+# (https://github.com/KnobanLabs/linux-ephemeral-runners)
+
+name: Feature Request
+description: Suggest an improvement, a new pool type, or a new capability
+type: Feature
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or Motivation
+      description:
+        What problem does this solve? What's currently missing or frustrating?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe what you'd like to see added or changed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any other approaches you've thought about?
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This changes the controller (scaling, VM lifecycle, capacity)
+        - label: This changes the config format or a deployment's settings
+        - label: This changes setup or install scripts
+        - label: This changes the VM images or what runs inside them

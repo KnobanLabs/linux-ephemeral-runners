@@ -1,0 +1,17 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+
+[Unit]
+Description=Firewall for ephemeral-runners VMs (internet only)
+Documentation=https://github.com/KnobanLabs/linux-ephemeral-runners#security-model
+Before=ephemeral-runners.service ephemeral-runners-images.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /usr/local/share/ephemeral-runners/firewall.nft
+ExecStop=/usr/sbin/nft delete table inet ephemeral_runners
+
+[Install]
+WantedBy=multi-user.target

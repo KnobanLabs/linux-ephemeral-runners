@@ -1,0 +1,44 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+# (https://github.com/KnobanLabs/linux-ephemeral-runners)
+
+controller:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*.go'
+          - go.mod
+          - go.sum
+
+install:
+  - changed-files:
+      - any-glob-to-any-file:
+          - scripts/**
+          - packaging/**
+
+images:
+  - changed-files:
+      - any-glob-to-any-file:
+          - images/**
+          - image.go
+
+config:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*.example.toml'
+          - .gitignore
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - LICENSE
+          - examples/**
+          - .github/PULL_REQUEST_TEMPLATE.md
+          - .github/ISSUE_TEMPLATE/**
+          - assets/**
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/**
+          - .github/labeler.yaml
