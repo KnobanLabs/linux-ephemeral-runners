@@ -68,6 +68,24 @@ GIT_TERMINAL_PROMPT=0
 EOF
 chown -R runner:runner /home/runner
 
+# What the host's preload.toml asks for, one item per line, so jobs needn't
+# download it. Each item only saves time, so one that fails or hangs is left
+# out and named on the console, and jobs download it as before. Every word
+# was checked by the host.
+while read -r kind args; do
+	[[ -n $kind ]] || continue
+	# shellcheck disable=SC2086 # one word per argument
+	if timeout 15m bash "$guest/preload.sh" "$kind" $args </dev/null; then
+		echo "EPH-PRELOAD-OK $kind $args" >/dev/console
+	else
+		echo "EPH-PRELOAD-FAILED $kind $args" >/dev/console
+	fi
+done </var/lib/eph-build/preload
+# A package install that failed partway must not reach jobs: this fails the
+# build if apt can't put it right.
+dpkg --configure -a
+apt-get check
+
 # The one-job service: started by a udev rule when the host's registration
 # disk appears, it runs the runner and powers the VM off after.
 install -m 0644 "$guest/eph-runner.service" /etc/systemd/system/

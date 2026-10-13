@@ -35,8 +35,13 @@ commands:
   validate-config <deployment.toml>...
            check deployment files offline (no GitHub, QEMU or keys needed),
            e.g. in a config repo's CI
+  preload-config <file>...
+           print a preload.toml with the pins found in the files: the
+           Playwright version of a package-lock.json, and every image
+           pinned by digest
 
-The config dir holds host.toml (optional) and deployments/<name>.toml.
+The config dir holds host.toml and preload.toml (both optional) and
+deployments/<name>.toml.
 `
 
 func main() {
@@ -58,6 +63,16 @@ func main() {
 			os.Exit(2)
 		}
 		if err := validateConfig(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "preload-config":
+		if flag.NArg() < 2 {
+			flag.Usage()
+			os.Exit(2)
+		}
+		if err := writePreloadConfig(os.Stdout, flag.Args()[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

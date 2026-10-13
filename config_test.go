@@ -218,7 +218,7 @@ func TestVMSpecArgs(t *testing.T) {
 }
 
 func TestCloudConfigCarriesGuestFiles(t *testing.T) {
-	data, err := cloudConfig("26.04", runnerRelease{Version: "2.338.0", SHA256: "abc"})
+	data, err := cloudConfig("26.04", runnerRelease{Version: "2.338.0", SHA256: "abc"}, Preload{})
 	if err != nil {
 		t.Fatal(err)
 	}
