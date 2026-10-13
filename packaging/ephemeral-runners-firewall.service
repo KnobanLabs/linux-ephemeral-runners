@@ -11,6 +11,10 @@ After=network-pre.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/sbin/nft -f /usr/local/share/ephemeral-runners/firewall.nft
+# The rules file replaces the table in one transaction, so reloading applies
+# new rules without a moment unprotected, and without stopping the
+# controller, which a restart would (it's bound to this unit).
+ExecReload=/usr/sbin/nft -f /usr/local/share/ephemeral-runners/firewall.nft
 ExecStop=/usr/sbin/nft delete table inet ephemeral_runners
 
 [Install]

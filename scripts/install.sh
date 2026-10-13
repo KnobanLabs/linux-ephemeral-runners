@@ -75,7 +75,9 @@ for u in $units; do
 done
 systemctl daemon-reload
 systemctl enable -q ephemeral-runners-firewall.service ephemeral-runners-images.timer
-systemctl restart ephemeral-runners-firewall.service
+# Reload, not restart: restarting the firewall would stop the controller,
+# which is bound to it, and cut off any running jobs before the check below.
+systemctl reload-or-restart ephemeral-runners-firewall.service
 systemctl start ephemeral-runners-images.timer
 
 # Stage the would-be config and check it before touching the real one.
