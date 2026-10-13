@@ -34,7 +34,9 @@ playwright)
 	# Into the runner user's ~/.cache/ms-playwright, where jobs' Playwright
 	# looks by default. It reuses a browser only if the revision matches and
 	# the download completed, so another version just downloads its own.
-	sudo -H -u runner "$node" "$dir/package/cli.js" install "$@"
+	# Without the GC switch, installing one version would delete the browsers
+	# of every version installed before it, whose CLI copies are gone.
+	sudo -H -u runner env PLAYWRIGHT_SKIP_BROWSER_GC=1 "$node" "$dir/package/cli.js" install "$@"
 	;;
 docker)
 	systemctl start docker

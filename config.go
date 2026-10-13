@@ -55,9 +55,6 @@ type HostConfig struct {
 	// before their VMs are destroyed.
 	DrainTimeout Duration `toml:"drain_timeout"`
 	LogLevel     string   `toml:"log_level"`
-
-	// Preload comes from preload.toml, next to host.toml.
-	Preload Preload `toml:"-"`
 }
 
 // Deployment is one org, repo or enterprise this machine runs jobs for.
@@ -142,19 +139,14 @@ func defaultHost() HostConfig {
 	}
 }
 
-// LoadHost reads just host.toml and preload.toml under dir, for commands
-// that don't need any deployment.
+// LoadHost reads just host.toml under dir, for commands that don't need
+// any deployment.
 func LoadHost(dir string) (HostConfig, error) {
 	h := defaultHost()
 	path := filepath.Join(dir, "host.toml")
 	if _, err := toml.DecodeFile(path, &h); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return h, fmt.Errorf("read %s: %w", path, err)
 	}
-	p, err := loadPreload(dir)
-	if err != nil {
-		return h, err
-	}
-	h.Preload = p
 	return h, (&Config{Host: h}).Validate()
 }
 
@@ -231,7 +223,6 @@ func (c *Config) Validate() error {
 	if !filepath.IsAbs(h.StateDir) {
 		errs = append(errs, errors.New("state_dir must be an absolute path"))
 	}
-	errs = append(errs, h.Preload.Validate())
 	// Two deployments registering the same scale set would fight over its
 	// message session.
 	owner := map[string]string{}

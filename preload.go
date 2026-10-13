@@ -44,20 +44,27 @@ var (
 	pinnedImageIn = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}`)
 )
 
-// loadPreload reads dir/preload.toml. Without one, nothing is preloaded.
-func loadPreload(dir string) (Preload, error) {
+// LoadPreload reads and checks dir/preload.toml. Without one, nothing is
+// preloaded. Only image builds and `check` read it, so a mistake in it
+// never stops the controller serving jobs.
+func LoadPreload(dir string) (Preload, error) {
 	var p Preload
 	path := filepath.Join(dir, preloadFile)
-	if _, err := toml.DecodeFile(path, &p); err != nil {
+	md, err := toml.DecodeFile(path, &p)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return Preload{}, nil
 		}
 		return p, fmt.Errorf("read %s: %w", path, err)
 	}
+	// A misspelt key would otherwise quietly preload nothing.
+	if keys := md.Undecoded(); len(keys) > 0 {
+		return p, fmt.Errorf("%s: unknown keys %v", path, keys)
+	}
 	if len(p.PlaywrightBrowsers) == 0 {
 		p.PlaywrightBrowsers = defaultPlaywrightBrowsers
 	}
-	return p, nil
+	return p, p.Validate()
 }
 
 func (p Preload) Validate() error {
@@ -112,9 +119,8 @@ func writePreloadConfig(w io.Writer, files []string) error {
 				p.Playwright = append(p.Playwright, v)
 			}
 		}
-		for _, ref := range pinnedImageIn.FindAllString(string(data), -1) {
-			// A URL ending in a digest isn't an image reference.
-			if !strings.Contains(ref, "://") && !slices.Contains(p.DockerImages, ref) {
+		for _, ref := range pinnedImages(string(data)) {
+			if !slices.Contains(p.DockerImages, ref) {
 				p.DockerImages = append(p.DockerImages, ref)
 			}
 		}
@@ -139,6 +145,33 @@ func writePreloadConfig(w io.Writer, files []string) error {
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// pinnedImages finds the image references pinned by digest in text,
+// leaving out what only looks like one: a URL, the tail of a reference
+// built from a variable (${REGISTRY}/app@sha256:...), or a longer hex run.
+func pinnedImages(text string) []string {
+	var refs []string
+	for _, m := range pinnedImageIn.FindAllStringIndex(text, -1) {
+		ref := text[m[0]:m[1]]
+		if m[0] > 0 && strings.ContainsRune("/}$", rune(text[m[0]-1])) {
+			continue
+		}
+		if m[1] < len(text) && isHexDigit(text[m[1]]) {
+			continue
+		}
+		// docker://image@sha256:... is how a workflow's `uses:` names one.
+		ref = strings.TrimPrefix(ref, "docker://")
+		if strings.Contains(ref, "://") {
+			continue
+		}
+		refs = append(refs, ref)
+	}
+	return refs
+}
+
+func isHexDigit(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f'
 }
 
 // lockedPlaywright is the version of playwright-core, which holds the

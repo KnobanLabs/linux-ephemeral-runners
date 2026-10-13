@@ -13,25 +13,25 @@ import (
 var testDigest = strings.Repeat("0123456789abcdef", 4)
 
 func TestLoadPreload(t *testing.T) {
-	// No preload.toml: nothing preloaded, and the host config still loads.
-	h, err := LoadHost(t.TempDir())
-	if err != nil || len(h.Preload.Playwright) != 0 || len(h.Preload.DockerImages) != 0 {
-		t.Fatalf("without preload.toml: %+v, %v", h.Preload, err)
+	// No preload.toml: nothing preloaded.
+	p, err := LoadPreload(t.TempDir())
+	if err != nil || len(p.Playwright) != 0 || len(p.DockerImages) != 0 {
+		t.Fatalf("without preload.toml: %+v, %v", p, err)
 	}
 
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "preload.toml"), []byte(`playwright = ["1.56.0"]
 docker_images = ["ghcr.io/acme/db:1.2@sha256:`+testDigest+`"]
 `), 0o600)
-	h, err = LoadHost(dir)
+	p, err = LoadPreload(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(h.Preload.PlaywrightBrowsers, []string{"chromium", "firefox", "webkit"}) {
-		t.Errorf("default browsers = %v", h.Preload.PlaywrightBrowsers)
+	if !slices.Equal(p.PlaywrightBrowsers, []string{"chromium", "firefox", "webkit"}) {
+		t.Errorf("default browsers = %v", p.PlaywrightBrowsers)
 	}
 	want := "playwright 1.56.0 chromium firefox webkit\ndocker ghcr.io/acme/db:1.2@sha256:" + testDigest + "\n"
-	if got := h.Preload.guestList(); got != want {
+	if got := p.guestList(); got != want {
 		t.Errorf("guestList =\n%s\nwant\n%s", got, want)
 	}
 }
@@ -44,18 +44,21 @@ func TestPreloadRejectsWhatTheGuestCantTrust(t *testing.T) {
 		`playwright = ["latest"]`,
 		`playwright = ["1.56.0 && reboot"]`,
 		`playwright = ["1.56.0"]` + "\n" + `playwright_browsers = ["Chromium"]`,
+		`docker_image = ["x@sha256:` + testDigest + `"]`, // misspelt: would preload nothing
 	} {
 		dir := t.TempDir()
 		os.WriteFile(filepath.Join(dir, "preload.toml"), []byte(body), 0o600)
-		if _, err := LoadHost(dir); err == nil || !strings.Contains(err.Error(), "preload.toml") {
+		if _, err := LoadPreload(dir); err == nil || !strings.Contains(err.Error(), "preload.toml") {
 			t.Errorf("%s: expected a preload.toml error, got %v", body, err)
 		}
 	}
-	// check (and so install.sh) refuses a bad preload.toml too.
+}
+
+func TestBadPreloadNeverStopsTheController(t *testing.T) {
 	dir := writeConfigDir(t, "", map[string]string{"acme": deploymentTOML("https://github.com/acme")})
 	os.WriteFile(filepath.Join(dir, "preload.toml"), []byte(`docker_images = ["postgres:18"]`), 0o600)
-	if _, err := LoadConfig(dir); err == nil || !strings.Contains(err.Error(), "pinned by digest") {
-		t.Fatalf("LoadConfig: expected a pinning error, got %v", err)
+	if _, err := LoadConfig(dir); err != nil {
+		t.Fatalf("LoadConfig, which run uses, must not read preload.toml: %v", err)
 	}
 }
 
@@ -66,7 +69,7 @@ func TestPreloadExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.WriteFile(filepath.Join(dir, "preload.toml"), example, 0o600)
-	if _, err := LoadHost(dir); err != nil {
+	if _, err := LoadPreload(dir); err != nil {
 		t.Fatalf("preload.example.toml: %v", err)
 	}
 }
@@ -95,28 +98,35 @@ func TestPreloadConfig(t *testing.T) {
 `), 0o600)
 	script := filepath.Join(dir, "gate.mjs")
 	os.WriteFile(script, []byte(`const TOOL = 'registry.example.com:5000/tools/lint:v1@sha256:`+strings.Repeat("cd", 32)+`';`), 0o600)
+	workflow := filepath.Join(dir, "ci.yaml")
+	os.WriteFile(workflow, []byte(`steps:
+  - uses: docker://ghcr.io/acme/action@sha256:`+strings.Repeat("ef", 32)+`
+  - run: docker run ${REGISTRY}/tools/built@sha256:`+testDigest+`
+  - run: echo x@sha256:`+testDigest+`ff
+`), 0o600)
 
 	var out strings.Builder
-	if err := writePreloadConfig(&out, []string{lock, compose, script}); err != nil {
+	if err := writePreloadConfig(&out, []string{lock, compose, script, workflow}); err != nil {
 		t.Fatal(err)
 	}
 	// What it prints must load back as a valid preload.toml.
 	cfgDir := t.TempDir()
 	os.WriteFile(filepath.Join(cfgDir, "preload.toml"), []byte(out.String()), 0o600)
-	h, err := LoadHost(cfgDir)
+	p, err := LoadPreload(cfgDir)
 	if err != nil {
 		t.Fatalf("%v in:\n%s", err, out.String())
 	}
-	if !slices.Equal(h.Preload.Playwright, []string{"1.56.0"}) {
-		t.Errorf("playwright = %v", h.Preload.Playwright)
+	if !slices.Equal(p.Playwright, []string{"1.56.0"}) {
+		t.Errorf("playwright = %v", p.Playwright)
 	}
 	want := []string{
+		"ghcr.io/acme/action@sha256:" + strings.Repeat("ef", 32),
 		"ghcr.io/acme/cache@sha256:" + strings.Repeat("ab", 32),
 		"postgres:18.1-trixie@sha256:" + testDigest,
 		"registry.example.com:5000/tools/lint:v1@sha256:" + strings.Repeat("cd", 32),
 	}
-	if !slices.Equal(h.Preload.DockerImages, want) {
-		t.Errorf("docker_images =\n%v\nwant\n%v", h.Preload.DockerImages, want)
+	if !slices.Equal(p.DockerImages, want) {
+		t.Errorf("docker_images =\n%v\nwant\n%v", p.DockerImages, want)
 	}
 
 	empty := filepath.Join(dir, "README.md")
@@ -150,6 +160,11 @@ func TestCloudConfigCarriesPreload(t *testing.T) {
 		if !strings.Contains(string(provision), want) {
 			t.Errorf("provision.sh doesn't contain %q", want)
 		}
+	}
+	// Each version's install must leave earlier versions' browsers alone.
+	script, _ := guestFiles.ReadFile("images/preload.sh")
+	if !strings.Contains(string(script), "PLAYWRIGHT_SKIP_BROWSER_GC=1") {
+		t.Error("preload.sh lets Playwright delete the browsers of versions installed before")
 	}
 }
 

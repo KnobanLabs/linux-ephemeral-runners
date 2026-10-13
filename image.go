@@ -27,9 +27,11 @@ var guestFiles embed.FS
 const (
 	cloudImageBase    = "https://cloud-images.ubuntu.com/releases"
 	cloudImageKeyring = "/usr/share/keyrings/ubuntu-cloudimage-keyring.gpg"
-	buildTimeout      = 45 * time.Minute
-	buildCPU          = 4
-	buildMemoryMB     = 8192
+	// The base provisioning's 45 minutes, plus provision.sh's 20 for
+	// preloading and a little for its last item to be killed.
+	buildTimeout  = 70 * time.Minute
+	buildCPU      = 4
+	buildMemoryMB = 8192
 )
 
 var ubuntuImageRE = regexp.MustCompile(`^ubuntu-(\d{2}\.\d{2})$`)
@@ -38,7 +40,7 @@ var ubuntuImageRE = regexp.MustCompile(`^ubuntu-(\d{2}\.\d{2})$`)
 // cloud image, provisioned inside a throwaway VM. The new image replaces the
 // old one atomically: VMs already running keep the file they opened, and
 // new VMs use the new one.
-func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, name string, diskGB int) error {
+func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, preload Preload, name string, diskGB int) error {
 	m := ubuntuImageRE.FindStringSubmatch(name)
 	if m == nil {
 		return fmt.Errorf("only ubuntu-<version> images can be built, e.g. ubuntu-24.04; put a custom image at %s yourself", h.ImagePath(name))
@@ -75,13 +77,13 @@ func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, na
 	if err := q.img(ctx, "resize", "-q", disk, fmt.Sprintf("%dG", diskGB)); err != nil {
 		return err
 	}
-	seed, err := writeSeed(ctx, buildDir, name, version, runner, h.Preload)
+	seed, err := writeSeed(ctx, buildDir, name, version, runner, preload)
 	if err != nil {
 		return err
 	}
 
 	log.Info("Provisioning image", slog.String("ubuntu", version), slog.String("runner", runner.Version), slog.Int("diskGB", diskGB),
-		slog.Any("preloadPlaywright", h.Preload.Playwright), slog.Int("preloadDockerImages", len(h.Preload.DockerImages)))
+		slog.Any("preloadPlaywright", preload.Playwright), slog.Int("preloadDockerImages", len(preload.DockerImages)))
 	console, err := os.Create(filepath.Join(buildDir, "console.log"))
 	if err != nil {
 		return err

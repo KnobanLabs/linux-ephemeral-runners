@@ -344,8 +344,10 @@ differ downloads what it needs, as it would without preloading:
   completed.
 - Docker finds an image locally only under the digest the job asks for.
 
-Each item is best effort. One that fails, or takes over 15 minutes, is left
-out of the image. The image service's log
+Each item is best effort. One that fails, or takes over 15 minutes (20 for
+all items together), is left out of the image. A mistake in the file itself
+never stops the controller, which doesn't read it; `check` and image builds
+report it. The image service's log
 (`journalctl -u ephemeral-runners-images`) and the build log
 (`images/<name>.build.log`) say which items were left out.
 
