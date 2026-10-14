@@ -45,6 +45,8 @@ var (
 		`(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
 	// Candidates for pinnedImages, which narrows them to pinnedImageRE.
 	pinnedImageIn = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9_.:/-]*@sha256:[0-9a-f]{64}`)
+	// A Compose variable and its default or alternate value operator.
+	composeVarPrefix = regexp.MustCompile(`^[A-Za-z0-9_]+:?[-+]`)
 )
 
 // LoadPreload reads and checks dir/preload.toml. Without one, nothing is
@@ -168,12 +170,14 @@ func pinnedImages(text string) []string {
 		if strings.Contains(ref, "://") {
 			continue
 		}
-		// ${IMAGE:-postgres:18@sha256:...} matches from IMAGE; the
-		// reference is the default after the last ":-".
-		if !pinnedImageRE.MatchString(ref) {
-			if i := strings.LastIndex(ref, ":-"); i >= 0 {
-				ref = ref[i+2:]
+		// ${IMAGE:-postgres:18@sha256:...} (or -, :+, +) matches from
+		// IMAGE; the reference is the value after the operator.
+		if m[0] > 0 && text[m[0]-1] == '{' {
+			op := composeVarPrefix.FindString(ref)
+			if op == "" {
+				continue
 			}
+			ref = ref[len(op):]
 		}
 		if pinnedImageRE.MatchString(ref) {
 			refs = append(refs, ref)
