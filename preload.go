@@ -38,9 +38,12 @@ var (
 	playwrightVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 	browserNameRE       = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	// An image reference pinned by digest, such as
-	// postgres:18@sha256:<64 hex digits>. Docker checks the rest; this keeps
+	// postgres:18@sha256:<64 hex digits>, in Docker's reference grammar
+	// (lowercase names, an optional registry port and tag). It also keeps
 	// out anything the guest's shell would read as more than one word.
-	pinnedImageRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
+	pinnedImageRE = regexp.MustCompile(`^[a-z0-9]+([._-]+[a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-]+[a-z0-9]+)*)*` +
+		`(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
+	// Candidates for pinnedImages, which narrows them to pinnedImageRE.
 	pinnedImageIn = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}`)
 )
 
@@ -165,7 +168,16 @@ func pinnedImages(text string) []string {
 		if strings.Contains(ref, "://") {
 			continue
 		}
-		refs = append(refs, ref)
+		// ${IMAGE:-postgres:18@sha256:...} matches from IMAGE; the
+		// reference is the default after the last ":-".
+		if !pinnedImageRE.MatchString(ref) {
+			if i := strings.LastIndex(ref, ":-"); i >= 0 {
+				ref = ref[i+2:]
+			}
+		}
+		if pinnedImageRE.MatchString(ref) {
+			refs = append(refs, ref)
+		}
 	}
 	return refs
 }

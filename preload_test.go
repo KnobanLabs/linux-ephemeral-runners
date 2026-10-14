@@ -38,9 +38,10 @@ docker_images = ["ghcr.io/acme/db:1.2@sha256:`+testDigest+`"]
 
 func TestPreloadRejectsWhatTheGuestCantTrust(t *testing.T) {
 	for _, body := range []string{
-		`docker_images = ["postgres:18"]`,                     // not pinned: a job could get another image
-		`docker_images = ["postgres@sha256:abc"]`,             // not a full digest
-		`docker_images = ["x@sha256:` + testDigest + `; rm"]`, // more than one word
+		`docker_images = ["postgres:18"]`,                        // not pinned: a job could get another image
+		`docker_images = ["postgres@sha256:abc"]`,                // not a full digest
+		`docker_images = ["x@sha256:` + testDigest + `; rm"]`,    // more than one word
+		`docker_images = ["Acme/App@sha256:` + testDigest + `"]`, // Docker rejects uppercase names
 		`playwright = ["latest"]`,
 		`playwright = ["1.56.0 && reboot"]`,
 		`playwright = ["1.56.0"]` + "\n" + `playwright_browsers = ["Chromium"]`,
@@ -93,6 +94,8 @@ func TestPreloadConfig(t *testing.T) {
     image: "ghcr.io/acme/cache@sha256:`+strings.Repeat("ab", 32)+`"
   floating:
     image: redis:8
+  defaulted:
+    image: ${KV_IMAGE:-valkey/valkey:9.0-trixie@sha256:`+strings.Repeat("12", 32)+`}
 # https://example.com/manifests/sha256:`+testDigest+`
 # https://example.com/x@sha256:`+testDigest+`
 `), 0o600)
@@ -124,6 +127,7 @@ func TestPreloadConfig(t *testing.T) {
 		"ghcr.io/acme/cache@sha256:" + strings.Repeat("ab", 32),
 		"postgres:18.1-trixie@sha256:" + testDigest,
 		"registry.example.com:5000/tools/lint:v1@sha256:" + strings.Repeat("cd", 32),
+		"valkey/valkey:9.0-trixie@sha256:" + strings.Repeat("12", 32),
 	}
 	if !slices.Equal(p.DockerImages, want) {
 		t.Errorf("docker_images =\n%v\nwant\n%v", p.DockerImages, want)
