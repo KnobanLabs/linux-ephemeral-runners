@@ -91,6 +91,11 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/deployments"
 if [ -f "$etc/host.toml" ]; then cp "$etc/host.toml" "$stage/"; fi
+# Images built below preload what it lists, and the check below checks it.
+if [ -f "$etc/preload.toml" ]; then
+	chown root:"$user" "$etc/preload.toml" && chmod 0640 "$etc/preload.toml"
+	cp "$etc/preload.toml" "$stage/"
+fi
 for f in "$etc"/deployments/*.toml; do
 	if [ -f "$f" ]; then cp "$f" "$stage/deployments/"; fi
 done

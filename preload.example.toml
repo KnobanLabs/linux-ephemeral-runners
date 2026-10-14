@@ -1,0 +1,27 @@
+# What every golden image this host builds comes with, so jobs needn't
+# download it each time. Optional: without
+# /etc/ephemeral-runners/preload.toml, images carry none of it. It's per
+# host, and scripts/install.sh never overwrites it.
+#
+# Generate it from your repositories' own pins rather than by hand:
+#   ephemeral-runners preload-config path/to/package-lock.json path/to/compose.yaml ...
+# See "Preloading" in README.md. New images pick up a change at the weekly
+# rebuild, or at once with: sudo systemctl start ephemeral-runners-images
+#
+# Preloading only saves time. A job whose pins differ downloads what it
+# needs, as it would without this, and an item that fails to preload is
+# left out of the image, with a warning in the image service's log.
+
+# Playwright versions whose browsers go in the runner user's
+# ~/.cache/ms-playwright, where Playwright looks by default, with the
+# system packages they need (playwright install-deps).
+# playwright = ["1.56.0"]
+# The browsers installed for each version. Default: all three.
+# playwright_browsers = ["chromium", "firefox", "webkit"]
+
+# Container images pulled into the image's Docker, each pinned by digest,
+# as name[:tag]@sha256:<64 hex digits>. A job that runs or pulls the same
+# image finds its layers there and downloads none of them.
+# docker_images = [
+#   "postgres:18@sha256:...",
+# ]

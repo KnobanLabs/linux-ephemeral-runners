@@ -21,15 +21,17 @@ import (
 	"time"
 )
 
-//go:embed images/provision.sh images/eph-runner.service images/eph-runner-prepare images/eph-runner-start images/90-eph-runner.rules
+//go:embed images/provision.sh images/preload.sh images/eph-runner.service images/eph-runner-prepare images/eph-runner-start images/90-eph-runner.rules
 var guestFiles embed.FS
 
 const (
 	cloudImageBase    = "https://cloud-images.ubuntu.com/releases"
 	cloudImageKeyring = "/usr/share/keyrings/ubuntu-cloudimage-keyring.gpg"
-	buildTimeout      = 45 * time.Minute
-	buildCPU          = 4
-	buildMemoryMB     = 8192
+	// The base provisioning's 45 minutes, plus provision.sh's 20 for
+	// preloading and a little for its last item to be killed.
+	buildTimeout  = 70 * time.Minute
+	buildCPU      = 4
+	buildMemoryMB = 8192
 )
 
 var ubuntuImageRE = regexp.MustCompile(`^ubuntu-(\d{2}\.\d{2})$`)
@@ -38,7 +40,7 @@ var ubuntuImageRE = regexp.MustCompile(`^ubuntu-(\d{2}\.\d{2})$`)
 // cloud image, provisioned inside a throwaway VM. The new image replaces the
 // old one atomically: VMs already running keep the file they opened, and
 // new VMs use the new one.
-func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, name string, diskGB int) error {
+func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, preload Preload, name string, diskGB int) error {
 	m := ubuntuImageRE.FindStringSubmatch(name)
 	if m == nil {
 		return fmt.Errorf("only ubuntu-<version> images can be built, e.g. ubuntu-24.04; put a custom image at %s yourself", h.ImagePath(name))
@@ -75,12 +77,13 @@ func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, na
 	if err := q.img(ctx, "resize", "-q", disk, fmt.Sprintf("%dG", diskGB)); err != nil {
 		return err
 	}
-	seed, err := writeSeed(ctx, buildDir, name, version, runner)
+	seed, err := writeSeed(ctx, buildDir, name, version, runner, preload)
 	if err != nil {
 		return err
 	}
 
-	log.Info("Provisioning image", slog.String("ubuntu", version), slog.String("runner", runner.Version), slog.Int("diskGB", diskGB))
+	log.Info("Provisioning image", slog.String("ubuntu", version), slog.String("runner", runner.Version), slog.Int("diskGB", diskGB),
+		slog.Any("preloadPlaywright", preload.Playwright), slog.Int("preloadDockerImages", len(preload.DockerImages)))
 	console, err := os.Create(filepath.Join(buildDir, "console.log"))
 	if err != nil {
 		return err
@@ -113,6 +116,11 @@ func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, na
 	case <-ok:
 	default:
 		return fmt.Errorf("provisioning failed; full log in %s; last provisioning output:\n%s", buildLog, provisionTail(console.Name()))
+	}
+	// Preloading only saves jobs time, so an item that failed is left out
+	// rather than failing the build; jobs download it as before.
+	for _, item := range preloadFailures(console.Name()) {
+		log.Warn("Preload failed; the image goes without it", slog.String("item", item), slog.String("log", buildLog))
 	}
 
 	// Flatten into a standalone image without the zeroed blocks.
@@ -231,8 +239,8 @@ func sha256File(path string) (string, error) {
 
 // writeSeed makes the cloud-init NoCloud seed ISO that provisions the build
 // VM: it writes the guest files, runs provision.sh, then powers off.
-func writeSeed(ctx context.Context, dir, name, version string, runner runnerRelease) (string, error) {
-	userData, err := cloudConfig(version, runner)
+func writeSeed(ctx context.Context, dir, name, version string, runner runnerRelease, preload Preload) (string, error) {
+	userData, err := cloudConfig(version, runner, preload)
 	if err != nil {
 		return "", err
 	}
@@ -251,7 +259,7 @@ func writeSeed(ctx context.Context, dir, name, version string, runner runnerRele
 	return seed, nil
 }
 
-func cloudConfig(version string, runner runnerRelease) ([]byte, error) {
+func cloudConfig(version string, runner runnerRelease, preload Preload) ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteString("#cloud-config\n")
 	// No default "ubuntu" user, no password logins: nothing logs in to
@@ -270,6 +278,10 @@ func cloudConfig(version string, runner runnerRelease) ([]byte, error) {
 		fmt.Fprintf(&b, "  - path: /var/lib/eph-build/guest/%s\n    permissions: '0755'\n    encoding: b64\n    content: %s\n",
 			e.Name(), base64.StdEncoding.EncodeToString(data))
 	}
+	// Always written, empty when nothing is preloaded, so provision.sh
+	// can read it unconditionally.
+	fmt.Fprintf(&b, "  - path: /var/lib/eph-build/preload\n    permissions: '0644'\n    encoding: b64\n    content: %s\n",
+		base64.StdEncoding.EncodeToString([]byte(preload.guestList())))
 	fmt.Fprintf(&b, "runcmd:\n  - [bash, /var/lib/eph-build/guest/provision.sh, %q, %q, %q]\n", version, runner.Version, runner.SHA256)
 	b.WriteString("power_state:\n  mode: poweroff\n  timeout: 60\n  condition: true\n")
 	return b.Bytes(), nil

@@ -56,7 +56,7 @@ jobs:
         run: go build -o /dev/null .
 
       - name: Lint shell scripts
-        run: shellcheck scripts/*.sh packaging/firewall-watch images/provision.sh images/eph-runner-prepare images/eph-runner-start
+        run: shellcheck scripts/*.sh packaging/firewall-watch images/provision.sh images/preload.sh images/eph-runner-prepare images/eph-runner-start
 
   # The job id is the required check's name, so it gets no `name:`.
   validation-outcome: # zizmor: ignore[anonymous-definition]

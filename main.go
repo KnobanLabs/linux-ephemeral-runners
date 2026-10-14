@@ -24,7 +24,8 @@ const usage = `usage: ephemeral-runners [-config-dir dir] <command>
 
 commands:
   run      register every deployment's scale sets and serve jobs until stopped
-  check    validate the config, credentials, images, KVM and budget, then exit
+  check    validate the config (preload.toml too), credentials, images, KVM
+           and budget, then exit
   cleanup  delete leftover VMs and their runner registrations, then exit
   build-image [-disk-gb N] [name...]
            build golden images (default: every image the deployments use).
@@ -35,8 +36,13 @@ commands:
   validate-config <deployment.toml>...
            check deployment files offline (no GitHub, QEMU or keys needed),
            e.g. in a config repo's CI
+  preload-config <file>...
+           print a preload.toml with the pins found in the files: the
+           Playwright version of a package-lock.json, and every image
+           pinned by digest
 
-The config dir holds host.toml (optional) and deployments/<name>.toml.
+The config dir holds host.toml and preload.toml (both optional) and
+deployments/<name>.toml.
 `
 
 func main() {
@@ -58,6 +64,16 @@ func main() {
 			os.Exit(2)
 		}
 		if err := validateConfig(flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "preload-config":
+		if flag.NArg() < 2 {
+			flag.Usage()
+			os.Exit(2)
+		}
+		if err := writePreloadConfig(os.Stdout, flag.Args()[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -278,6 +294,12 @@ func check(ctx context.Context, cfg *Config, log *slog.Logger) error {
 		return err
 	}
 	log.Info("KVM, QEMU and images present", slog.Any("images", cfg.Images()))
+	// Image builds read preload.toml; the controller never does.
+	preload, err := LoadPreload(cfg.Dir)
+	if err != nil {
+		return err
+	}
+	log.Info("Preload for image builds", slog.Any("playwright", preload.Playwright), slog.Int("dockerImages", len(preload.DockerImages)))
 	for _, d := range cfg.Deployments {
 		client, err := newClient(ctx, d)
 		if err != nil {
@@ -323,6 +345,10 @@ func buildImagesCommand(ctx context.Context, configDir string, args []string) er
 	if err != nil {
 		return err
 	}
+	preload, err := LoadPreload(configDir)
+	if err != nil {
+		return err
+	}
 	names := fs.Args()
 	if len(names) == 0 {
 		cfg, err := LoadConfig(configDir)
@@ -343,7 +369,7 @@ func buildImagesCommand(ctx context.Context, configDir string, args []string) er
 		if !imageNameRE.MatchString(name) {
 			return fmt.Errorf("image %q must be a plain name such as ubuntu-24.04", name)
 		}
-		if err := buildImage(ctx, log, qemu, host, name, *diskGB); err != nil {
+		if err := buildImage(ctx, log, qemu, host, preload, name, *diskGB); err != nil {
 			return fmt.Errorf("image %s: %w", name, err)
 		}
 	}

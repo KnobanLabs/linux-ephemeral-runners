@@ -60,7 +60,9 @@ flowchart TB
   official cloud image (checked against Ubuntu's signed checksums) with the
   latest Actions runner, Docker and common build tools. A weekly timer
   rebuilds them, so images carry current security updates and a runner
-  version GitHub still accepts.
+  version GitHub still accepts. Optionally, they also come with the
+  Playwright browsers and container images your jobs pin, so jobs needn't
+  download them each time; see [Preloading](#preloading).
 - **Single-use VMs:** a job's disk is a copy-on-write overlay on the golden
   image, created in an instant and deleted afterwards. Its just-in-time runner
   registration, valid for one job, reaches the VM through QEMU's firmware
@@ -100,6 +102,7 @@ the [security model](#security-model).
 | Deployment configs (org, App IDs, pools) | wherever you keep them; see [Where to keep deployment configs](#where-to-keep-deployment-configs) | not in this repo |
 | Installed deployments | `/etc/ephemeral-runners/deployments/<name>.toml` | copies `install.sh` makes |
 | Host settings (optional) | `/etc/ephemeral-runners/host.toml`, from `host.example.toml` | no; per host |
+| What images preload (optional) | `/etc/ephemeral-runners/preload.toml`, from `preload-config`; see [Preloading](#preloading) | no; per host |
 | GitHub App private keys | `/etc/ephemeral-runners/keys/<name>.pem` | **never**; `*.pem` is ignored |
 | Controller binary | `/usr/local/bin/ephemeral-runners` | built by `install.sh` |
 | systemd units and firewall | `/etc/systemd/system/ephemeral-runners*`, `/etc/systemd/system/nftables.service.d/50-ephemeral-runners.conf`, `/usr/local/share/ephemeral-runners/` (rules and watchdog) | installed by `install.sh` |
@@ -121,7 +124,9 @@ afterwards, so workflows don't change when the host or the maintainer does.
 - **Go**, to build the controller: the version in `go.mod` or later, from
   [go.dev/dl](https://go.dev/dl/) (Ubuntu's packaged Go is too old).
 - **Disk:** about 15 GB per golden image, plus what running jobs write.
-  Overlays are copy-on-write.
+  Overlays are copy-on-write. [Preloading](#preloading) adds its unpacked
+  size to each image, and up to three times that while one is rebuilt (the
+  old image, the build's disk and the new image).
 - **RAM and CPU:** whatever you budget for VMs (see [Capacity](#capacity)),
   plus what the host's own services need.
 
@@ -300,6 +305,56 @@ pools use. A pool's `max_runners` is an upper bound on top of the budgets, and
 jobs beyond what fits wait in GitHub's queue. Image builds (weekly, about 4
 vCPUs and 8 GB for a few minutes) run outside the budget at low priority.
 
+## Preloading
+
+Jobs that install Playwright's browsers, or pull the same pinned container
+images, download them again in every job, since every VM starts from the
+golden image. List them in `/etc/ephemeral-runners/preload.toml`, and every
+golden image this host builds comes with them:
+
+- **Playwright:** each version's browsers go in the runner user's
+  `~/.cache/ms-playwright`, where Playwright looks by default, so jobs need
+  no settings. Their system packages are installed, as
+  `playwright install-deps` would install them.
+- **Container images:** pulled into the image's Docker, each pinned by digest.
+
+Generate the file from your repositories' own pins rather than copying them
+by hand. Run this on any machine with a checkout and Go:
+
+```bash
+go run github.com/KnobanLabs/linux-ephemeral-runners@develop preload-config \
+  package-lock.json compose.yaml > preload.toml
+sudo install -o root -g ephrunner -m 0640 preload.toml /etc/ephemeral-runners/preload.toml
+sudo -u ephrunner ephemeral-runners check        # checks it with the rest of the config
+sudo systemctl start ephemeral-runners-images    # or wait for the weekly rebuild
+```
+
+`preload-config` reads:
+
+- the Playwright version from a `package-lock.json`;
+- every `name@sha256:<digest>` image reference from any file you give it.
+
+Edit the result as you like; `preload.example.toml` lists every setting. Run
+it again when those pins change.
+
+**A list that falls behind costs time, never correctness.** A job whose pins
+differ downloads what it needs, as it would without preloading:
+
+- Playwright reuses a browser only when its revision matches and its download
+  completed.
+- Docker finds an image locally only under the digest the job asks for.
+
+Each item is best effort. One that fails, or takes over 15 minutes (20 for
+all items together), is left out of the image. A mistake in the file itself
+never stops the controller, which doesn't read it; `check` and image builds
+report it. The image service's log
+(`journalctl -u ephemeral-runners-images`) and the build log
+(`images/<name>.build.log`) say which items were left out.
+
+**Whatever you preload is in every job's VM**, for every deployment on the
+host. Preload only public things. The build has no registry credentials, and
+nothing it pulls should need any.
+
 ## Operating
 
 ```bash
@@ -316,6 +371,9 @@ sudo ./scripts/uninstall.sh [--purge]                     # stop serving everyth
 **Updating:** `git pull` in the repo, then `sudo ./scripts/install.sh`.
 
 **Changing a deployment:** edit its config and rerun `install.sh` with it.
+
+**Changing what images preload:** replace `preload.toml`, then rebuild the
+images. New jobs use them once they're built; see [Preloading](#preloading).
 
 **Stopping gracefully:** with `drain_timeout = "0s"` (the default), stopping
 the controller destroys running jobs' VMs at once. Raise it in `host.toml` to
