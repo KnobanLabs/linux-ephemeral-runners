@@ -30,9 +30,28 @@ apt-get install -y --no-install-recommends \
 	pipx openssh-client rsync sudo acl file iproute2 iputils-ping dnsutils \
 	docker.io
 # Expected on hosted runners, but not packaged for every release.
-for p in docker-buildx docker-compose-v2 gh shellcheck; do
+for p in docker-buildx docker-compose-v2 shellcheck; do
 	apt-get install -y --no-install-recommends "$p" || echo "Skipping $p: not available on $version"
 done
+
+# The GitHub CLI from GitHub's own apt repository, as on hosted runners:
+# Ubuntu's package lags far behind (24.04 has 2.45), and workflows use
+# newer commands. The repository stays configured, so jobs can update it.
+install -d -m 0755 /etc/apt/keyrings
+curl -fsSL -o /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg
+chmod 0644 /etc/apt/keyrings/githubcli-archive-keyring.gpg
+cat >/etc/apt/sources.list.d/github-cli.sources <<EOF
+Types: deb
+URIs: https://cli.github.com/packages
+Suites: stable
+Components: main
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+EOF
+apt-get update
+apt-get install -y --no-install-recommends gh
+gh_version=$(dpkg-query -W -f='${Version}' gh)
+dpkg --compare-versions "$gh_version" ge 2.49 || { echo "gh $gh_version is older than 2.49" >&2; exit 1; }
 
 # The job user, like GitHub-hosted runners: "runner", passwordless sudo,
 # Docker without sudo.
