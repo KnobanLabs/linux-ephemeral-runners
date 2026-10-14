@@ -38,13 +38,13 @@ var (
 	playwrightVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 	browserNameRE       = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	// An image reference pinned by digest, such as
-	// postgres:18@sha256:<64 hex digits>, in Docker's reference grammar
-	// (lowercase names, an optional registry port and tag). It also keeps
+	// postgres:18@sha256:<64 hex digits>: Docker's reference grammar, a
+	// little stricter (a lowercase registry host, no IPv6). It also keeps
 	// out anything the guest's shell would read as more than one word.
 	pinnedImageRE = regexp.MustCompile(`^[a-z0-9]+([._-]+[a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-]+[a-z0-9]+)*)*` +
 		`(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$`)
 	// Candidates for pinnedImages, which narrows them to pinnedImageRE.
-	pinnedImageIn = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}`)
+	pinnedImageIn = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9_.:/-]*@sha256:[0-9a-f]{64}`)
 )
 
 // LoadPreload reads and checks dir/preload.toml. Without one, nothing is

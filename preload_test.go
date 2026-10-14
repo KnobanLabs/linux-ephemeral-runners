@@ -96,6 +96,10 @@ func TestPreloadConfig(t *testing.T) {
     image: redis:8
   defaulted:
     image: ${KV_IMAGE:-valkey/valkey:9.0-trixie@sha256:`+strings.Repeat("12", 32)+`}
+  underscored:
+    image: ghcr.io/acme/data_loader:1.0_slim@sha256:`+strings.Repeat("34", 32)+`
+  lowercase-default:
+    image: ${db_image:-postgres:18@sha256:`+strings.Repeat("56", 32)+`}
 # https://example.com/manifests/sha256:`+testDigest+`
 # https://example.com/x@sha256:`+testDigest+`
 `), 0o600)
@@ -125,7 +129,9 @@ func TestPreloadConfig(t *testing.T) {
 	want := []string{
 		"ghcr.io/acme/action@sha256:" + strings.Repeat("ef", 32),
 		"ghcr.io/acme/cache@sha256:" + strings.Repeat("ab", 32),
+		"ghcr.io/acme/data_loader:1.0_slim@sha256:" + strings.Repeat("34", 32),
 		"postgres:18.1-trixie@sha256:" + testDigest,
+		"postgres:18@sha256:" + strings.Repeat("56", 32),
 		"registry.example.com:5000/tools/lint:v1@sha256:" + strings.Repeat("cd", 32),
 		"valkey/valkey:9.0-trixie@sha256:" + strings.Repeat("12", 32),
 	}
