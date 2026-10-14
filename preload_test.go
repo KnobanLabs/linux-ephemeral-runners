@@ -104,6 +104,10 @@ func TestPreloadConfig(t *testing.T) {
     image: ${pg_image-postgres:17@sha256:`+strings.Repeat("78", 32)+`}
   unset-default-upper:
     image: ${PG_IMAGE-postgres:16@sha256:`+strings.Repeat("9a", 32)+`}
+  underscore-variable:
+    image: ${_PG:-postgres:15@sha256:`+strings.Repeat("bc", 32)+`}
+  alternate:
+    image: ${USE_PG:+postgres:14@sha256:`+strings.Repeat("de", 32)+`}
 # https://example.com/manifests/sha256:`+testDigest+`
 # https://example.com/x@sha256:`+testDigest+`
 `), 0o600)
@@ -134,6 +138,8 @@ func TestPreloadConfig(t *testing.T) {
 		"ghcr.io/acme/action@sha256:" + strings.Repeat("ef", 32),
 		"ghcr.io/acme/cache@sha256:" + strings.Repeat("ab", 32),
 		"ghcr.io/acme/data_loader:1.0_slim@sha256:" + strings.Repeat("34", 32),
+		"postgres:14@sha256:" + strings.Repeat("de", 32),
+		"postgres:15@sha256:" + strings.Repeat("bc", 32),
 		"postgres:16@sha256:" + strings.Repeat("9a", 32),
 		"postgres:17@sha256:" + strings.Repeat("78", 32),
 		"postgres:18.1-trixie@sha256:" + testDigest,
