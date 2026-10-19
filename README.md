@@ -322,12 +322,12 @@ The example pools use the private-repository size. For jobs that need more,
 add a bigger pool under a name of its own, as GitHub does with its larger
 runners.
 
-Disk is not matched. A job's disk is the golden image's virtual size, 80 GB
-unless `build-image -disk-gb` says otherwise, and the image's own files use
-part of it: a few GB, and about 12 GB with Playwright's browsers and a dozen
-container images [preloaded](#preloading). GitHub lists 14 GB of storage for
-its standard runners, which such an image wouldn't leave jobs room in. So a
-job can write more here than it may on GitHub's runner.
+Disk is not matched. A job's disk is the golden image's virtual size: 80 GB,
+`build-image`'s default, which the weekly rebuild always uses. The image's
+own files use part of it: about 4 GB, and about 12 GB with Playwright's
+browsers and a dozen container images [preloaded](#preloading). GitHub lists
+14 GB of storage for its standard runners, which such an image wouldn't leave
+jobs room in. So a job can write more here than it may on GitHub's runner.
 
 ## Preloading
 
@@ -406,10 +406,20 @@ images. New jobs use them once they're built; see [Preloading](#preloading).
 running jobs' VMs at once. With `drain_timeout = "0s"` (the default) the
 controller does it itself, and under the systemd unit a longer
 `drain_timeout` doesn't help yet either
-([#12](https://github.com/KnobanLabs/linux-ephemeral-runners/issues/12)). To apply a change without
-killing a job, restart while none runs: when
-`ls /var/lib/ephemeral-runners/vms` lists no VM. With `min_idle = 0`, a VM
-exists only while a job waits for it or runs on it.
+([#12](https://github.com/KnobanLabs/linux-ephemeral-runners/issues/12)).
+To apply a change without killing a job, stop the controller while no VM
+exists, then install:
+
+```bash
+until [ -z "$(sudo ls -A /var/lib/ephemeral-runners/vms)" ]; do sleep 10; done
+sudo systemctl stop ephemeral-runners    # at once: jobs now wait in GitHub's queue
+sudo ./scripts/install.sh <path/to/deployment.toml>   # its restart starts it again
+```
+
+If `install.sh` fails, `sudo systemctl start ephemeral-runners` brings the
+controller back with the config it had. This needs `min_idle = 0` in every
+pool, where a VM exists only while a job waits for it or runs on it. A host
+whose `vms/` never empties can't yet take a change without killing a job.
 
 ## License
 
