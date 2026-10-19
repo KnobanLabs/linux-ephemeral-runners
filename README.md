@@ -411,13 +411,15 @@ To apply a change without killing a job, stop the controller while no VM
 exists, then install:
 
 ```bash
+sudo -v    # so a failed password can't end the wait below early
 until [ -z "$(sudo ls -A /var/lib/ephemeral-runners/vms)" ]; do sleep 10; done
 sudo systemctl stop ephemeral-runners    # at once: jobs now wait in GitHub's queue
 sudo ./scripts/install.sh <path/to/deployment.toml>   # its restart starts it again
 ```
 
-If `install.sh` fails, `sudo systemctl start ephemeral-runners` brings the
-controller back with the config it had. This needs `min_idle = 0` in every
+If `install.sh` stops at its check, it hasn't installed the deployment files
+yet, and `sudo systemctl start ephemeral-runners` brings the controller back
+with the config it had. This needs `min_idle = 0` in every
 pool, where a VM exists only while a job waits for it or runs on it. A host
 whose `vms/` never empties can't yet take a change without killing a job.
 
