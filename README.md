@@ -300,10 +300,34 @@ a few hundred MB on top of its memory):
 sudo systemctl set-property ephemeral-runners.service MemoryMax=115G
 ```
 
-GitHub's `ubuntu-latest` VM is 4 vCPUs and 16 GB, which is what the example
-pools use. A pool's `max_runners` is an upper bound on top of the budgets, and
-jobs beyond what fits wait in GitHub's queue. Image builds (weekly, about 4
-vCPUs and 8 GB for a few minutes) run outside the budget at low priority.
+A pool's `max_runners` is an upper bound on top of the budgets, and jobs
+beyond what fits wait in GitHub's queue. Image builds (weekly, about 4 vCPUs
+and 8 GB for a few minutes) run outside the budget at low priority.
+
+### Sizing pools like GitHub-hosted runners
+
+Give a pool the size of the GitHub-hosted runner its workflows would
+otherwise use, so a job that passes on one passes on the other: one sized
+for more cores or memory than GitHub's can pass here and then fail there,
+for example with pods that request more CPU than the runner has. GitHub's
+standard Linux x64 runners
+([reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)):
+
+| Repository | vCPUs | Memory | `cpu` | `memory_mb` |
+|---|---|---|---|---|
+| Private (what these runners serve) | 2 | 8 GB | 2 | 8192 |
+| Public | 4 | 16 GB | 4 | 16384 |
+
+The example pools use the private-repository size. For jobs that need more,
+add a bigger pool under a name of its own, as GitHub does with its larger
+runners.
+
+Disk is not matched. A job's disk is the golden image's virtual size, 80 GB
+unless `build-image -disk-gb` says otherwise, and the image's own files use
+part of it: a few GB, and about 12 GB with Playwright's browsers and a dozen
+container images [preloaded](#preloading). GitHub lists 14 GB of storage for
+its standard runners, which such an image wouldn't leave jobs room in. So a
+job can write more here than it may on GitHub's runner.
 
 ## Preloading
 
@@ -371,13 +395,21 @@ sudo ./scripts/uninstall.sh [--purge]                     # stop serving everyth
 **Updating:** `git pull` in the repo, then `sudo ./scripts/install.sh`.
 
 **Changing a deployment:** edit its config and rerun `install.sh` with it.
+That restarts the controller, which reads its config only when it starts, so
+see _Stopping gracefully_ below first. VMs started after the restart get the
+new pool sizes.
 
 **Changing what images preload:** replace `preload.toml`, then rebuild the
 images. New jobs use them once they're built; see [Preloading](#preloading).
 
-**Stopping gracefully:** with `drain_timeout = "0s"` (the default), stopping
-the controller destroys running jobs' VMs at once. Raise it in `host.toml` to
-let them finish, and keep the unit's `TimeoutStopSec` (180 s) above it.
+**Stopping gracefully:** stopping or restarting the controller destroys
+running jobs' VMs at once. With `drain_timeout = "0s"` (the default) the
+controller does it itself, and under the systemd unit a longer
+`drain_timeout` doesn't help yet either
+([#12](https://github.com/KnobanLabs/linux-ephemeral-runners/issues/12)). To apply a change without
+killing a job, restart while none runs: when
+`ls /var/lib/ephemeral-runners/vms` lists no VM. With `min_idle = 0`, a VM
+exists only while a job waits for it or runs on it.
 
 ## License
 

@@ -36,12 +36,15 @@ private_key_path = "/etc/ephemeral-runners/keys/YOUR-DEPLOYMENT-NAME.pem"
 # ubuntu-<version> images are built (and rebuilt weekly) by
 # `ephemeral-runners build-image`.
 
-# Like GitHub's ubuntu-latest / ubuntu-24.04: 4 vCPUs, 16 GB.
+# Sized like GitHub's standard ubuntu-latest / ubuntu-24.04 runner for
+# private repositories (the only kind these runners should serve): 2 vCPUs,
+# 8 GB. Public repositories get 4 vCPUs and 16 GB there; see "Capacity" in
+# the README.
 [[pool]]
 name = "kvm-ubuntu-x64"
 image = "ubuntu-24.04"
-cpu = 4
-memory_mb = 16384
+cpu = 2
+memory_mb = 8192
 # An upper bound; the host budget usually limits concurrency first.
 max_runners = 8
 # Booted VMs kept waiting for jobs. Skips the ~10 s boot, but each one holds
@@ -51,7 +54,7 @@ min_idle = 0
 [[pool]]
 name = "kvm-ubuntu-26.04-x64"
 image = "ubuntu-26.04"
-cpu = 4
-memory_mb = 16384
+cpu = 2
+memory_mb = 8192
 max_runners = 8
 min_idle = 0
