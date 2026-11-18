@@ -110,7 +110,9 @@ if ! ls "$stage"/deployments/*.toml >/dev/null 2>&1; then
 	exit 1
 fi
 
-for image in $(runuser -u "$user" -- "$bin" -config-dir "$stage" check 2>&1 | sed -n 's/.*image \([^ ]*\) is missing.*/\1/p'); do
+# check reports every missing image in one log line, so take each match, not
+# each line.
+for image in $(runuser -u "$user" -- "$bin" -config-dir "$stage" check 2>&1 | grep -o 'image [^ ]* is missing' | cut -d' ' -f2 | sort -u); do
 	echo "Building image $image (several minutes)..."
 	runuser -u "$user" -- "$bin" -config-dir "$stage" build-image "$image"
 done
