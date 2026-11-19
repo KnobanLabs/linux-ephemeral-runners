@@ -142,11 +142,15 @@ func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, pr
 	if err := os.Rename(tmp, h.ImagePath(name)); err != nil {
 		return err
 	}
-	if err := os.WriteFile(record+".new", []byte(preloadRecord(preload, failed)), 0o644); err != nil {
-		return fmt.Errorf("record what the image preloads: %w", err)
+	// The image is in place by now, so a record that can't be written
+	// doesn't fail the build: check reports the image as preloading nothing.
+	err = os.WriteFile(record+".new", []byte(preloadRecord(preload, failed)), 0o644)
+	if err == nil {
+		err = os.Rename(record+".new", record)
 	}
-	if err := os.Rename(record+".new", record); err != nil {
-		return fmt.Errorf("record what the image preloads: %w", err)
+	if err != nil {
+		_ = os.Remove(record + ".new")
+		log.Warn("Can't record what the image preloads", slog.Any("error", err))
 	}
 	log.Info("Image ready", slog.String("path", h.ImagePath(name)), slog.Duration("took", time.Since(start).Round(time.Second)))
 	return nil

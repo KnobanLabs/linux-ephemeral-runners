@@ -229,7 +229,9 @@ func TestPreloadRecord(t *testing.T) {
 func preloadWarnings(t *testing.T, p Preload, records map[string]string) map[string]string {
 	t.Helper()
 	state := t.TempDir()
-	os.Mkdir(filepath.Join(state, "images"), 0o755)
+	if err := os.Mkdir(filepath.Join(state, "images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &Config{
 		Host: HostConfig{StateDir: state},
 		Deployments: []*Deployment{{Pools: []Pool{
@@ -237,7 +239,9 @@ func preloadWarnings(t *testing.T, p Preload, records map[string]string) map[str
 		}}},
 	}
 	for name, body := range records {
-		os.WriteFile(cfg.Host.PreloadRecordPath(name), []byte(body), 0o644)
+		if err := os.WriteFile(cfg.Host.PreloadRecordPath(name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var out bytes.Buffer
 	checkPreloadRecords(slog.New(slog.NewTextHandler(&out, nil)), cfg, p)
