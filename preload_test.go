@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -203,5 +205,81 @@ func TestPreloadFailures(t *testing.T) {
 	want := []string{"docker x@sha256:1", "playwright 1.57.0 webkit"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("preloadFailures = %q, want %q", got, want)
+	}
+}
+
+func TestPreloadRecord(t *testing.T) {
+	p := Preload{
+		Playwright:         []string{"1.56.0", "1.57.0"},
+		PlaywrightBrowsers: []string{"chromium"},
+		DockerImages:       []string{"postgres@sha256:" + testDigest},
+	}
+	got := preloadRecord(p, []string{"playwright 1.57.0 chromium"})
+	want := "playwright 1.56.0 chromium\ndocker postgres@sha256:" + testDigest + "\n"
+	if got != want {
+		t.Errorf("preloadRecord =\n%s\nwant\n%s", got, want)
+	}
+	if got := preloadRecord(Preload{}, nil); got != "" {
+		t.Errorf("preloadRecord of nothing = %q", got)
+	}
+}
+
+// preloadWarnings runs checkPreloadRecords against images whose records
+// are given, and returns the images it warns about with their messages.
+func preloadWarnings(t *testing.T, p Preload, records map[string]string) map[string]string {
+	t.Helper()
+	state := t.TempDir()
+	os.Mkdir(filepath.Join(state, "images"), 0o755)
+	cfg := &Config{
+		Host: HostConfig{StateDir: state},
+		Deployments: []*Deployment{{Pools: []Pool{
+			{Image: "ubuntu-24.04"}, {Image: "ubuntu-26.04"}, {Image: "custom"},
+		}}},
+	}
+	for name, body := range records {
+		os.WriteFile(cfg.Host.PreloadRecordPath(name), []byte(body), 0o644)
+	}
+	var out bytes.Buffer
+	checkPreloadRecords(slog.New(slog.NewTextHandler(&out, nil)), cfg, p)
+	warned := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if m := regexp.MustCompile(`image=(\S+)`).FindStringSubmatch(line); m != nil && strings.Contains(line, "level=WARN") {
+			warned[m[1]] = line
+		}
+	}
+	return warned
+}
+
+func TestCheckPreloadRecords(t *testing.T) {
+	p := Preload{Playwright: []string{"1.56.0"}, PlaywrightBrowsers: defaultPlaywrightBrowsers}
+	current := preloadRecord(p, nil)
+
+	// Nothing to preload, and images built without records or with empty
+	// ones: nothing to say.
+	if w := preloadWarnings(t, Preload{}, map[string]string{"ubuntu-24.04": ""}); len(w) != 0 {
+		t.Errorf("nothing preloaded, warned %v", w)
+	}
+
+	// A host that gained a preload.toml after its images were built.
+	w := preloadWarnings(t, p, map[string]string{"ubuntu-24.04": current})
+	if _, ok := w["ubuntu-24.04"]; ok {
+		t.Errorf("warned about an image that preloads the list: %s", w["ubuntu-24.04"])
+	}
+	if !strings.Contains(w["ubuntu-26.04"], `missing="[playwright 1.56.0 chromium firefox webkit]"`) ||
+		!strings.Contains(w["ubuntu-26.04"], "ephemeral-runners-images") {
+		t.Errorf("an image without a record: %q", w["ubuntu-26.04"])
+	}
+	if _, ok := w["custom"]; ok {
+		t.Error("warned about a custom image, which build-image doesn't make")
+	}
+
+	// The list changed, or a build left an item out: both differ.
+	w = preloadWarnings(t, Preload{}, map[string]string{"ubuntu-24.04": current, "ubuntu-26.04": ""})
+	if !strings.Contains(w["ubuntu-24.04"], "extra=") || len(w) != 1 {
+		t.Errorf("an image preloading what the list dropped: %v", w)
+	}
+	w = preloadWarnings(t, p, map[string]string{"ubuntu-24.04": current, "ubuntu-26.04": preloadRecord(p, preloadItems(current))})
+	if len(w) != 1 || w["ubuntu-26.04"] == "" {
+		t.Errorf("an image whose build left an item out: %v", w)
 	}
 }

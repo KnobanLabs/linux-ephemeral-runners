@@ -95,6 +95,8 @@ if [ -f "$etc/host.toml" ]; then cp "$etc/host.toml" "$stage/"; fi
 if [ -f "$etc/preload.toml" ]; then
 	chown root:"$user" "$etc/preload.toml" && chmod 0640 "$etc/preload.toml"
 	cp "$etc/preload.toml" "$stage/"
+else
+	echo "Notice: no $etc/preload.toml, so images built here preload nothing; see Preloading in README.md."
 fi
 for f in "$etc"/deployments/*.toml; do
 	if [ -f "$f" ]; then cp "$f" "$stage/deployments/"; fi

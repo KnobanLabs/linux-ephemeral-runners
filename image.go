@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -119,7 +120,8 @@ func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, pr
 	}
 	// Preloading only saves jobs time, so an item that failed is left out
 	// rather than failing the build; jobs download it as before.
-	for _, item := range preloadFailures(console.Name()) {
+	failed := preloadFailures(console.Name())
+	for _, item := range failed {
 		log.Warn("Preload failed; the image goes without it", slog.String("item", item), slog.String("log", buildLog))
 	}
 
@@ -131,8 +133,20 @@ func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, pr
 	if err := os.Chmod(tmp, 0o644); err != nil {
 		return err
 	}
+	// The old record goes first, so a build cut short from here on leaves
+	// no record, which check reports, rather than one for another image.
+	record := h.PreloadRecordPath(name)
+	if err := os.Remove(record); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.Rename(tmp, h.ImagePath(name)); err != nil {
 		return err
+	}
+	if err := os.WriteFile(record+".new", []byte(preloadRecord(preload, failed)), 0o644); err != nil {
+		return fmt.Errorf("record what the image preloads: %w", err)
+	}
+	if err := os.Rename(record+".new", record); err != nil {
+		return fmt.Errorf("record what the image preloads: %w", err)
 	}
 	log.Info("Image ready", slog.String("path", h.ImagePath(name)), slog.Duration("took", time.Since(start).Round(time.Second)))
 	return nil
