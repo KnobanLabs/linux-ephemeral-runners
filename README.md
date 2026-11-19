@@ -158,7 +158,19 @@ afterwards, so workflows don't change when the host or the maintainer does.
    scp ~/Downloads/<app-slug>.*.private-key.pem root@<host>:/etc/ephemeral-runners/keys/<name>.pem
    ```
 
-5. **Install and start:**
+5. **Choose what the images preload** (optional). If jobs install
+   Playwright's browsers or pull container images pinned by digest, generate a
+   `preload.toml` as [Preloading](#preloading) shows and put it in place now,
+   so the images the next step builds come with them:
+
+   ```bash
+   sudo install -D -m 0640 preload.toml /etc/ephemeral-runners/preload.toml
+   ```
+
+   Without one, `install.sh` says so and the images preload nothing. Adding
+   one later takes a rebuild of the images, which `check` reminds you of.
+
+6. **Install and start:**
 
    ```bash
    sudo ./scripts/install.sh path/to/<name>.toml
@@ -171,7 +183,7 @@ afterwards, so workflows don't change when the host or the maintainer does.
    (re)start the service. Pass several configs to install several deployments
    at once.
 
-6. **Verify.** Copy `examples/smoke_test.yaml` into `.github/workflows/` of a
+7. **Verify.** Copy `examples/smoke_test.yaml` into `.github/workflows/` of a
    **private** repo that can use the runners, and run it with your pool names:
 
    ```bash
@@ -375,6 +387,13 @@ report it. The image service's log
 (`journalctl -u ephemeral-runners-images`) and the build log
 (`images/<name>.build.log`) say which items were left out.
 
+Each build records what its image preloads beside it, in
+`images/<name>.preload`. `check`, which `install.sh` runs too, warns about
+each image that doesn't preload what `preload.toml` lists now: one built
+before the file was installed or last changed, or one whose build left an
+item out. An image without a record, such as one built before builds kept
+them, counts as preloading nothing until it's rebuilt.
+
 **Whatever you preload is in every job's VM**, for every deployment on the
 host. Preload only public things. The build has no registry credentials, and
 nothing it pulls should need any.
@@ -401,6 +420,7 @@ new pool sizes.
 
 **Changing what images preload:** replace `preload.toml`, then rebuild the
 images. New jobs use them once they're built; see [Preloading](#preloading).
+Until then, `check` names each image still to rebuild.
 
 **Stopping gracefully:** stopping or restarting the controller destroys
 running jobs' VMs at once. With `drain_timeout = "0s"` (the default) the

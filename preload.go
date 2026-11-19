@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -103,6 +104,68 @@ func (p Preload) guestList() string {
 		fmt.Fprintf(&b, "docker %s\n", ref)
 	}
 	return b.String()
+}
+
+// preloadItems splits a guest list, or an image's preload record, into its
+// items.
+func preloadItems(list string) []string {
+	var items []string
+	for _, line := range strings.Split(list, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			items = append(items, line)
+		}
+	}
+	return items
+}
+
+// preloadRecord is what an image built to preload p holds: p's guest list
+// without the items its build left out.
+func preloadRecord(p Preload, failed []string) string {
+	var b strings.Builder
+	for _, item := range preloadItems(p.guestList()) {
+		if !slices.Contains(failed, item) {
+			b.WriteString(item + "\n")
+		}
+	}
+	return b.String()
+}
+
+// checkPreloadRecords warns about each image the deployments use that
+// doesn't preload what p lists: one built before preload.toml was installed
+// or last changed, or one whose build left an item out. An image without a
+// record counts as preloading nothing. Only images build-image makes are
+// compared, since nothing is preloaded into a custom one. It never fails
+// check, since preloading only saves jobs time.
+func checkPreloadRecords(log *slog.Logger, cfg *Config, p Preload) {
+	want := preloadItems(p.guestList())
+	for _, name := range cfg.Images() {
+		if !ubuntuImageRE.MatchString(name) {
+			continue
+		}
+		data, err := os.ReadFile(cfg.Host.PreloadRecordPath(name))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Warn("Can't tell what the image preloads", slog.String("image", name), slog.Any("error", err))
+			continue
+		}
+		have := preloadItems(string(data))
+		var missing, extra []string
+		for _, item := range want {
+			if !slices.Contains(have, item) {
+				missing = append(missing, item)
+			}
+		}
+		for _, item := range have {
+			if !slices.Contains(want, item) {
+				extra = append(extra, item)
+			}
+		}
+		if len(missing) == 0 && len(extra) == 0 {
+			continue
+		}
+		log.Warn("Image doesn't preload what preload.toml lists; rebuild it with `sudo systemctl start ephemeral-runners-images`",
+			slog.String("image", name), slog.Any("missing", missing), slog.Any("extra", extra),
+			slog.String("buildLog", filepath.Join(filepath.Dir(cfg.Host.ImagePath(name)), name+".build.log")))
+	}
 }
 
 // writePreloadConfig writes a preload.toml with the pins found in files:

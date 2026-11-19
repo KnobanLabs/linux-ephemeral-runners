@@ -287,6 +287,12 @@ func (h HostConfig) ImagePath(name string) string {
 	return filepath.Join(h.StateDir, "images", name+".qcow2")
 }
 
+// PreloadRecordPath is where build-image records what a golden image
+// preloads, for check to compare with preload.toml.
+func (h HostConfig) PreloadRecordPath(name string) string {
+	return filepath.Join(h.StateDir, "images", name+".preload")
+}
+
 // VMsDir holds one directory per running VM.
 func (h HostConfig) VMsDir() string { return filepath.Join(h.StateDir, "vms") }
 

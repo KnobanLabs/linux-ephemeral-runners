@@ -300,6 +300,7 @@ func check(ctx context.Context, cfg *Config, log *slog.Logger) error {
 		return err
 	}
 	log.Info("Preload for image builds", slog.Any("playwright", preload.Playwright), slog.Int("dockerImages", len(preload.DockerImages)))
+	checkPreloadRecords(log, cfg, preload)
 	for _, d := range cfg.Deployments {
 		client, err := newClient(ctx, d)
 		if err != nil {
