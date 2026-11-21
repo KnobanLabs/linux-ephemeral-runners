@@ -1,0 +1,24 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# The VM launcher. Each connection to it starts an ephemeral-runners-vm@
+# instance, which runs one VM's QEMU under a user of its own, so the
+# controller starts VMs without any privilege of its own to do so.
+
+[Unit]
+Description=Launcher for ephemeral-runners VMs
+Documentation=https://github.com/KnobanLabs/linux-ephemeral-runners#security-model
+
+[Socket]
+ListenSequentialPacket=/run/ephemeral-runners/vm.sock
+Accept=yes
+# Only root and the controller's user may start VMs.
+SocketUser=root
+SocketGroup=ephrunner
+SocketMode=0660
+RemoveOnStop=yes
+# Each running VM holds a connection.
+MaxConnections=1024
+
+[Install]
+WantedBy=sockets.target

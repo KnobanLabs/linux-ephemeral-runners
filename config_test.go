@@ -199,24 +199,6 @@ func TestVMNameRoundTrip(t *testing.T) {
 	}
 }
 
-func TestVMSpecArgs(t *testing.T) {
-	args := strings.Join(VMSpec{
-		Name: "eph-acme-x-1", Disk: "/v/disk.qcow2", CPU: 4, MemoryMB: 16384,
-		JITDisk: "/v/jit.raw", PIDFile: "/v/qemu.pid",
-	}.args(), " ")
-	for _, want := range []string{
-		"-machine q35,accel=kvm", "-smp 4", "-m 16384",
-		"file=/v/jit.raw,if=none,id=jit,format=raw,readonly=on",
-		"-device virtio-blk-pci,drive=jit,serial=eph-jit",
-		"-netdev user,id=net0", "-no-reboot", "-sandbox on,",
-		"-pidfile /v/qemu.pid", "file=/v/disk.qcow2,if=none,id=root", "drive=root,bootindex=0",
-	} {
-		if !strings.Contains(args, want) {
-			t.Errorf("qemu args missing %q:\n%s", want, args)
-		}
-	}
-}
-
 func TestCloudConfigCarriesGuestFiles(t *testing.T) {
 	data, err := cloudConfig("26.04", runnerRelease{Version: "2.338.0", SHA256: "abc"}, Preload{})
 	if err != nil {

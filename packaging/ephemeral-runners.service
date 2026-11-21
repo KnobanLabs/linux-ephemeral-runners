@@ -4,8 +4,8 @@
 [Unit]
 Description=Ephemeral GitHub Actions runners (one QEMU/KVM VM per job)
 Documentation=https://github.com/KnobanLabs/linux-ephemeral-runners
-Wants=network-online.target
-After=network-online.target ephemeral-runners-firewall.service
+Wants=network-online.target ephemeral-runners-vm.socket
+After=network-online.target ephemeral-runners-firewall.service ephemeral-runners-vm.socket
 # Never run VMs without the firewall: if it stops, so does this.
 BindsTo=ephemeral-runners-firewall.service
 
@@ -13,26 +13,18 @@ BindsTo=ephemeral-runners-firewall.service
 Type=exec
 User=ephrunner
 Group=ephrunner
-SupplementaryGroups=kvm
 ExecStart=/usr/local/bin/ephemeral-runners -config-dir /etc/ephemeral-runners run
 Restart=always
 RestartSec=30
 # Must exceed drain_timeout in host.toml.
 TimeoutStopSec=180
-# Stopping the service ends every VM with it.
+# VMs run in units of their own (ephemeral-runners-vm@.service), each
+# ending when the controller's connection to it does, so stopping the
+# service ends every VM with it.
 KillMode=control-group
-# Jobs use idle CPU and disk freely, but when the host is saturated its own
-# services (default weight 100) get twice the share VMs do, so CI slows down
-# rather than, say, a media server stuttering.
-CPUWeight=50
-IOWeight=50
-# If the whole host runs out of memory, the kernel kills a job's VM first,
-# not the host's own services. To cap the VMs below that point, add a
-# drop-in with MemoryMax= a little above memory_budget_mb.
-OOMScoreAdjust=500
 
-# The controller and its VMs need /dev/kvm and their state directory, and
-# nothing else on the host.
+# The controller needs its config, its state directory and the VM
+# launcher's socket, and nothing else on the host.
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
@@ -41,7 +33,6 @@ ReadWritePaths=/var/lib/ephemeral-runners
 ProtectHome=yes
 PrivateTmp=yes
 DevicePolicy=closed
-DeviceAllow=/dev/kvm rw
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

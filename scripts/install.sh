@@ -18,11 +18,12 @@ set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 user=ephrunner
+vmgroup=ephrunner-vm
 etc=/etc/ephemeral-runners
 state=/var/lib/ephemeral-runners
 share=/usr/local/share/ephemeral-runners
 bin=/usr/local/bin/ephemeral-runners
-units="ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.service ephemeral-runners-firewall-watch.timer ephemeral-runners.service ephemeral-runners-images.service ephemeral-runners-images.timer"
+units="ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.service ephemeral-runners-firewall-watch.timer ephemeral-runners-vm.socket ephemeral-runners-vm@.service system-ephemeralrunners.slice ephemeral-runners.service ephemeral-runners-images.service ephemeral-runners-images.timer"
 
 deployment_name() {
 	name=$(basename "$1" .toml)
@@ -55,7 +56,12 @@ mv "$bin.new" "$bin"
 if ! id "$user" >/dev/null 2>&1; then
 	useradd --system --user-group --home-dir "$state" --no-create-home --shell /usr/sbin/nologin "$user"
 fi
-usermod -aG kvm "$user"
+# Each VM runs under a user of its own, which systemd makes when the VM
+# starts, in this group; the firewall matches VMs by it.
+getent group "$vmgroup" >/dev/null || groupadd --system "$vmgroup"
+# Only VMs open /dev/kvm. Hosts installed before VMs had users of their own
+# have the controller's user in kvm.
+if id -nG "$user" | tr ' ' '\n' | grep -qx kvm; then gpasswd -d "$user" kvm >/dev/null; fi
 install -d -o root -g "$user" -m 0750 "$etc" "$etc/deployments" "$etc/keys"
 install -d -o "$user" -g "$user" -m 0750 "$state" "$state/images" "$state/vms"
 for k in "$etc"/keys/*.pem; do
@@ -63,8 +69,8 @@ for k in "$etc"/keys/*.pem; do
 done
 
 # Let VMs ping: QEMU's user networking needs unprivileged ICMP sockets, which
-# this allows for the runner user's group only.
-gid=$(id -g "$user")
+# this allows for the VMs' group only.
+gid=$(getent group "$vmgroup" | cut -d: -f3)
 echo "net.ipv4.ping_group_range = $gid $gid" >/etc/sysctl.d/60-ephemeral-runners.conf
 sysctl -q -p /etc/sysctl.d/60-ephemeral-runners.conf
 
@@ -80,10 +86,13 @@ for u in $units; do
 	install -m 0644 "$repo/packaging/$u" "/etc/systemd/system/$u"
 done
 systemctl daemon-reload
-systemctl enable -q ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.timer ephemeral-runners-images.timer
-# Reload, not restart: restarting the firewall would stop the controller,
-# which is bound to it, and cut off any running jobs before the check below.
+systemctl enable -q ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.timer ephemeral-runners-vm.socket ephemeral-runners-images.timer
+# Reload, not restart: restarting the firewall would stop the controller
+# and VMs, which are bound to it, and cut off any running jobs before the
+# check below.
 systemctl reload-or-restart ephemeral-runners-firewall.service
+# VMs already running keep their connections through a restart.
+systemctl restart ephemeral-runners-vm.socket
 systemctl start ephemeral-runners-firewall-watch.timer ephemeral-runners-images.timer
 
 # Stage the would-be config and check it before touching the real one.

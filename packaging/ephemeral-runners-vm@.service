@@ -1,0 +1,60 @@
+# Copyright 2026 Knoban LLC
+# SPDX-License-Identifier: MIT
+#
+# One VM's QEMU, started by ephemeral-runners-vm.socket for a connection from
+# the controller or an image build, and ended with that connection. QEMU
+# gets the VM's disks as file descriptors over it, so its user needs no
+# access to any of the controller's files.
+
+[Unit]
+Description=ephemeral-runners VM
+Documentation=https://github.com/KnobanLabs/linux-ephemeral-runners#security-model
+After=ephemeral-runners-firewall.service
+# Never run VMs without the firewall: if it stops, so do they.
+BindsTo=ephemeral-runners-firewall.service
+CollectMode=inactive-or-failed
+
+[Service]
+# Each VM gets a user of its own, which systemd makes when it starts and
+# removes when it ends, so no VM can reach another's processes. Their
+# group is the same, and lasting: the firewall matches VM traffic by it.
+DynamicUser=yes
+User=ephvm-%i
+Group=ephrunner-vm
+SupplementaryGroups=kvm
+ExecStart=/usr/local/bin/ephemeral-runners vm
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+TimeoutStopSec=30
+# Jobs use idle CPU and disk freely, but when the host is saturated its
+# own services get twice the share VMs do (see the slice).
+Slice=system-ephemeralrunners.slice
+# If the whole host runs out of memory, the kernel kills a job's VM first,
+# not the host's own services.
+OOMScoreAdjust=500
+
+# QEMU needs /dev/kvm and the descriptors it's given, and nothing else on
+# the host.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+InaccessiblePaths=-/etc/ephemeral-runners
+ProtectProc=invisible
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+UMask=0077
