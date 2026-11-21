@@ -2,9 +2,9 @@
 # Copyright 2026 Knoban LLC
 # SPDX-License-Identifier: MIT
 #
-# Stops ephemeral-runners and removes its systemd units and the VMs' group
-# (each VM's own user goes with the VM). Leaves the config, keys, binary,
-# golden images and the ephrunner user in place. --purge also deletes
+# Stops ephemeral-runners and removes its systemd units and the VMs'
+# ephrunner-vm user. Leaves the config, keys, binary, golden images and the
+# ephrunner user in place. --purge also deletes
 # leftover VMs and their runner registrations. To stop serving just one
 # deployment, use remove-deployment.sh instead.
 set -eu
@@ -22,7 +22,10 @@ for u in $units ephemeral-runners-vm@.service system-ephemeralrunners.slice; do
 	rm -f "/etc/systemd/system/$u"
 done
 rm -f /etc/sysctl.d/60-ephemeral-runners.conf /etc/systemd/system/nftables.service.d/50-ephemeral-runners.conf
+# The kernel's default: no group may open unprivileged ICMP sockets.
+sysctl -q -w net.ipv4.ping_group_range="1 0"
+rmdir /run/ephemeral-runners 2>/dev/null || true
 rmdir /etc/systemd/system/nftables.service.d 2>/dev/null || true
 systemctl daemon-reload
-if getent group ephrunner-vm >/dev/null; then groupdel ephrunner-vm; fi
+if id ephrunner-vm >/dev/null 2>&1; then userdel ephrunner-vm; fi
 echo "Stopped and removed ephemeral-runners"

@@ -16,7 +16,8 @@ Group=ephrunner
 ExecStart=/usr/local/bin/ephemeral-runners -config-dir /etc/ephemeral-runners run
 Restart=always
 RestartSec=30
-# Must exceed drain_timeout in host.toml.
+# Must exceed drain_timeout in host.toml, plus about a minute for the last
+# VMs to stop and their registrations to be removed.
 TimeoutStopSec=180
 # VMs run in units of their own (ephemeral-runners-vm@.service), each
 # ending when the controller's connection to it does, so stopping the

@@ -4,7 +4,7 @@
 # One VM's QEMU, started by ephemeral-runners-vm.socket for a connection from
 # the controller or an image build, and ended with that connection. QEMU
 # gets the VM's disks as file descriptors over it, so its user needs no
-# access to any of the controller's files.
+# access to any of the controller's files, or to other VMs'.
 
 [Unit]
 Description=ephemeral-runners VM
@@ -15,11 +15,9 @@ BindsTo=ephemeral-runners-firewall.service
 CollectMode=inactive-or-failed
 
 [Service]
-# Each VM gets a user of its own, which systemd makes when it starts and
-# removes when it ends, so no VM can reach another's processes. Their
-# group is the same, and lasting: the firewall matches VM traffic by it.
-DynamicUser=yes
-User=ephvm-%i
+# The VMs' user, never the controller's. VMs share it, so each one's
+# processes, IPC, /tmp and /dev/shm are its own instead (below).
+User=ephrunner-vm
 Group=ephrunner-vm
 SupplementaryGroups=kvm
 ExecStart=/usr/local/bin/ephemeral-runners vm
@@ -44,7 +42,13 @@ ProtectHome=yes
 PrivateTmp=yes
 DevicePolicy=closed
 DeviceAllow=/dev/kvm rw
-InaccessiblePaths=-/etc/ephemeral-runners
+InaccessiblePaths=-/etc/ephemeral-runners -/dev/mqueue
+TemporaryFileSystem=/dev/shm
+# Each VM sees no process but its own: none of the controller's, and none
+# of other VMs', which run as the same user. systemd older than 257
+# ignores this, with a warning.
+PrivatePIDs=yes
+PrivateIPC=yes
 ProtectProc=invisible
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

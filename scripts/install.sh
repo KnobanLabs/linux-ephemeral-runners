@@ -18,12 +18,15 @@ set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 user=ephrunner
-vmgroup=ephrunner-vm
+vmuser=ephrunner-vm
 etc=/etc/ephemeral-runners
 state=/var/lib/ephemeral-runners
 share=/usr/local/share/ephemeral-runners
 bin=/usr/local/bin/ephemeral-runners
-units="ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.service ephemeral-runners-firewall-watch.timer ephemeral-runners-vm.socket ephemeral-runners-vm@.service system-ephemeralrunners.slice ephemeral-runners.service ephemeral-runners-images.service ephemeral-runners-images.timer"
+# The controller's own unit is installed last, just before it restarts: a
+# controller still running from an earlier install keeps the unit it was
+# started with until then.
+units="ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.service ephemeral-runners-firewall-watch.timer ephemeral-runners-vm.socket ephemeral-runners-vm@.service system-ephemeralrunners.slice ephemeral-runners-images.service ephemeral-runners-images.timer"
 
 deployment_name() {
 	name=$(basename "$1" .toml)
@@ -56,23 +59,20 @@ mv "$bin.new" "$bin"
 if ! id "$user" >/dev/null 2>&1; then
 	useradd --system --user-group --home-dir "$state" --no-create-home --shell /usr/sbin/nologin "$user"
 fi
-# Each VM runs under a user of its own, which systemd makes when the VM
-# starts, in this group; the firewall matches VMs by it.
-getent group "$vmgroup" >/dev/null || groupadd --system "$vmgroup"
-# Only VMs open /dev/kvm. Hosts installed before VMs had users of their own
-# have the controller's user in kvm.
+# VMs' QEMU runs as this user, which owns nothing; see "Who runs what" in
+# README.md.
+if ! id "$vmuser" >/dev/null 2>&1; then
+	useradd --system --user-group --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin "$vmuser"
+fi
+# Only VMs open /dev/kvm, and their unit adds kvm to their groups. Hosts
+# installed before VMs had a user of their own have the controller's user
+# in kvm.
 if id -nG "$user" | tr ' ' '\n' | grep -qx kvm; then gpasswd -d "$user" kvm >/dev/null; fi
 install -d -o root -g "$user" -m 0750 "$etc" "$etc/deployments" "$etc/keys"
 install -d -o "$user" -g "$user" -m 0750 "$state" "$state/images" "$state/vms"
 for k in "$etc"/keys/*.pem; do
 	if [ -f "$k" ]; then chown root:"$user" "$k" && chmod 0640 "$k"; fi
 done
-
-# Let VMs ping: QEMU's user networking needs unprivileged ICMP sockets, which
-# this allows for the VMs' group only.
-gid=$(getent group "$vmgroup" | cut -d: -f3)
-echo "net.ipv4.ping_group_range = $gid $gid" >/etc/sysctl.d/60-ephemeral-runners.conf
-sysctl -q -p /etc/sysctl.d/60-ephemeral-runners.conf
 
 install -d "$share"
 install -m 0644 "$repo/packaging/firewall.nft" "$share/firewall.nft"
@@ -137,6 +137,16 @@ for f in "$@"; do
 	echo "Installed $dest"
 done
 
+# Let VMs ping: QEMU's user networking needs unprivileged ICMP sockets, which
+# this allows for the VMs' user's group only. Set here, with the restart,
+# so that jobs of a controller from an earlier install keep theirs until
+# then.
+gid=$(id -g "$vmuser")
+echo "net.ipv4.ping_group_range = $gid $gid" >/etc/sysctl.d/60-ephemeral-runners.conf
+sysctl -q -p /etc/sysctl.d/60-ephemeral-runners.conf
+
+install -m 0644 "$repo/packaging/ephemeral-runners.service" /etc/systemd/system/ephemeral-runners.service
+systemctl daemon-reload
 systemctl enable -q ephemeral-runners.service
 systemctl restart ephemeral-runners.service
 echo "Started. Logs: journalctl -fu ephemeral-runners"

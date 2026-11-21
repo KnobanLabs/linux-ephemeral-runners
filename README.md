@@ -108,7 +108,7 @@ the [security model](#security-model).
 | systemd units and firewall | `/etc/systemd/system/ephemeral-runners*` and `system-ephemeralrunners.slice`, `/etc/systemd/system/nftables.service.d/50-ephemeral-runners.conf`, `/usr/local/share/ephemeral-runners/` (rules and watchdog) | installed by `install.sh` |
 | VM launcher's socket | `/run/ephemeral-runners/vm.sock`, usable by root and `ephrunner` only | made by `ephemeral-runners-vm.socket` |
 | Golden images, VM disks | `/var/lib/ephemeral-runners/images/`, `vms/`, owned by `ephrunner` | built on the host |
-| Users | `ephrunner` (the controller), the `ephrunner-vm` group, and a user per running VM; see [Who runs what](#who-runs-what) | made by `install.sh` and systemd |
+| Users | `ephrunner` (the controller) and `ephrunner-vm` (VMs' QEMU); see [Who runs what](#who-runs-what) | made by `install.sh` |
 | Logs | `journalctl -u ephemeral-runners`, and `-u 'ephemeral-runners-vm@*'` for VMs' QEMU | no |
 
 On GitHub, a deployment is the org's GitHub App plus one runner scale set per
@@ -178,12 +178,12 @@ afterwards, so workflows don't change when the host or the maintainer does.
    sudo ./scripts/install.sh path/to/<name>.toml
    ```
 
-   This installs QEMU and the other packages it needs, creates the `ephrunner`
-   user and the `ephrunner-vm` group, loads the firewall, builds any golden image that's missing (several
-   minutes each), and checks everything together (config, keys, images, the
-   VMs' user, GitHub access, budget). Only if that passes does it install the config and
-   (re)start the service. Pass several configs to install several deployments
-   at once.
+   This installs QEMU and the other packages it needs, creates the
+   `ephrunner` and `ephrunner-vm` users, loads the firewall, builds any
+   golden image that's missing (several minutes each), and checks everything
+   together (config, keys, images, the VMs' user, GitHub access, budget).
+   Only if that passes does it install the config and (re)start the service.
+   Pass several configs to install several deployments at once.
 
 7. **Verify.** Copy `examples/smoke_test.yaml` into `.github/workflows/` of a
    **private** repo that can use the runners, and run it with your pool names:
@@ -268,8 +268,8 @@ limits to know:
   runners. An org's Default runner group blocks public repos unless you allow
   them; keep it that way.
 - **The network:** a VM's traffic leaves the host as its QEMU process's own,
-  which runs under a user of its own in the `ephrunner-vm` group (see
-  [Who runs what](#who-runs-what)). `packaging/firewall.nft` lets that group,
+  which runs as `ephrunner-vm` (see [Who runs what](#who-runs-what)).
+  `packaging/firewall.nft` lets that user,
   and the controller's `ephrunner` user, reach the internet, and refuses everything on loopback, private, link-local, CGNAT
   and multicast ranges, every address the host itself holds, and IPv6
   addresses on the host's own links: services on the host (including ones
@@ -287,8 +287,8 @@ limits to know:
   default route has a public next hop, or none (PPP, WireGuard), jobs get
   no IPv6 at all, as on a host without it. `sudo scripts/test-firewall.sh`
   checks the rules in throwaway network namespaces on a Linux machine with
-  nftables, iproute2, OpenBSD netcat, an `ephrunner` user and an
-  `ephrunner-vm` group.
+  nftables, iproute2, OpenBSD netcat, and `ephrunner` and `ephrunner-vm`
+  users.
 - **Inside the VM:** jobs run as `runner` with passwordless sudo, like
   GitHub-hosted runners. The VM's single-use runner registration is readable
   from inside the VM; it is valid only for that one job.
@@ -306,35 +306,35 @@ Report vulnerabilities privately; see [SECURITY.md](SECURITY.md).
 | Process | User | Can read | Can write |
 |---|---|---|---|
 | Controller (`ephemeral-runners.service`) and image builds (`ephemeral-runners-images.service`) | `ephrunner` | `/etc/ephemeral-runners/`: the keys, deployments, `host.toml`, `preload.toml` | `/var/lib/ephemeral-runners/` |
-| Each VM's QEMU (`ephemeral-runners-vm@.service`) | a user of its own, `ephvm-<n>`, in the `ephrunner-vm` and `kvm` groups | the files the controller hands it: its overlay disk, the golden image under it, its registration | its overlay disk, and `/dev/kvm` |
+| Each VM's QEMU (`ephemeral-runners-vm@.service`) | `ephrunner-vm`, with `kvm` added by its unit | only the files the controller hands it: its overlay disk, the golden image under it, its registration | its overlay disk, and `/dev/kvm` |
 
 Each VM's QEMU is the process a job could escape into, so it holds as
 little as it can:
 
-- **A user per VM, made when the VM starts and removed when it ends**
-  (systemd's `DynamicUser=`). No VM's user can signal, trace or read
-  another VM's QEMU, or anything of the controller's. It has no login
-  shell, no home directory, no sudo rights and no files on the host. The
-  VMs share one lasting group, `ephrunner-vm`, which owns nothing either:
-  the firewall matches VM traffic by it, and it may open unprivileged ICMP
-  sockets so jobs can ping.
+- **A user of its own, never the controller's or root.** `ephrunner-vm`
+  has no login shell, no home directory, no sudo rights and no files on
+  the host. It's also how the firewall recognises VM traffic, and the one
+  group that may open unprivileged ICMP sockets, so jobs can ping.
 - **Files by descriptor, not by path.** The controller opens a VM's disks
   and passes QEMU the descriptors, read-only except the overlay. So the VM
   user needs no access to `/var/lib/ephemeral-runners` at all: it can read
   the golden image it boots from but not change it, write only its own
-  overlay, and can't see other VMs' directories, which only `ephrunner` can
-  open. The keys, deployments and host settings in
-  `/etc/ephemeral-runners/` are closed to it twice: by their modes, and by
-  its unit, which hides that directory.
+  overlay, and can't open any VM's directory, which only `ephrunner` can.
+  The keys, deployments and host settings in `/etc/ephemeral-runners/` are
+  closed to it twice: by their modes, and by its unit, which hides that
+  directory.
 - **No privilege for the controller to start VMs.** Its unit keeps
   `NoNewPrivileges=`, no capabilities and no devices. It connects to
   `/run/ephemeral-runners/vm.sock`, which only root and `ephrunner` may,
   and systemd starts an `ephemeral-runners-vm@` instance for each
-  connection, as that VM's user. The instance runs `ephemeral-runners vm`,
+  connection, as `ephrunner-vm`. The instance runs `ephemeral-runners vm`,
   which takes one request, starts QEMU, and sends back only its console
   and how it exited. The VM ends when that connection does: when the
-  controller stops the VM, or stops itself. A VM's user reaches the
+  controller stops the VM, or stops itself. The VM user reaches the
   controller through nothing else.
+- **Each VM apart from the others.** Every VM's unit has its own process
+  namespace (`PrivatePIDs=`), so its QEMU sees, signals and traces no
+  other process, and its own IPC, `/tmp` and `/dev/shm`.
 - **QEMU's own sandbox** stays on (seccomp: no spawning, no new
   privileges, no obsolete syscalls), and the VM's unit has at least the
   controller's systemd hardening, with `/dev/kvm` as its only device.
@@ -344,11 +344,18 @@ startup, ask the launcher who VMs would run as, and refuse to go on if
 that's root or the controller's user, if it can't open `/dev/kvm`, or if
 it can read anything in the config directory or any key.
 
-A single user shared by all VMs would be simpler, but a job that escaped
-into one QEMU could then reach every other running VM's QEMU, with its
-disk and registration, since processes of one user can reach each other.
-A user per VM costs nothing more in the firewall, which matches the
-shared group.
+VMs share one user rather than each having its own. systemd can make a
+user per unit (`DynamicUser=`), but names it after the unit, and the
+units the socket starts for each connection have names longer than a
+user name may be; a fixed pool of users, or a controller that names the
+units itself, would need setup sized to the host or a privilege the
+controller shouldn't have. With the VMs' files closed to them and each
+in its own process namespace, a shared user gives one VM nothing of
+another's. **`PrivatePIDs=` needs systemd 257 or later** (Ubuntu 26.04;
+24.04 has 255, which ignores it with a warning). There, a job that
+escaped into one VM's QEMU could also reach the other VMs' QEMU
+processes, and through them their disks, but still nothing of the
+controller's.
 
 ## Capacity
 
@@ -364,17 +371,18 @@ tests); when jobs do saturate the CPU they share it, and the VMs' slice's
 `CPUWeight=50` makes them yield to the host's own services, which get twice
 their share. If memory does run out, `OOMScoreAdjust=500` makes the kernel
 kill a job's VM before anything else; to stop VMs before the host is short at
-all, cap the VMs' slice a little above the budget (each VM's QEMU process
-needs a few hundred MB on top of its memory):
+all, cap the VMs' slice a little above the budget plus an image build's
+8 GB, since builds' VMs run in it too (each VM's QEMU process needs a few
+hundred MB on top of its memory):
 
 ```bash
-sudo systemctl set-property system-ephemeralrunners.slice MemoryMax=115G
+sudo systemctl set-property system-ephemeralrunners.slice MemoryMax=124G
 ```
 
 A pool's `max_runners` is an upper bound on top of the budgets, and jobs
 beyond what fits wait in GitHub's queue. Image builds (weekly, about 4 vCPUs
-and 8 GB for a few minutes) run outside the budget, their downloads and
-conversions at low priority and their VM in the VMs' slice.
+and 8 GB for a few minutes) run outside the budget: their downloads and
+conversions at low priority, and their VM with the job VMs.
 
 ### Sizing pools like GitHub-hosted runners
 

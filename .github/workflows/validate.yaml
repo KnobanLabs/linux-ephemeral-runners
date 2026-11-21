@@ -65,7 +65,7 @@ jobs:
             sudo apt-get install -y -qq --no-install-recommends nftables netcat-openbsd
           fi
           sudo useradd --system --no-create-home ephrunner
-          sudo groupadd --system ephrunner-vm
+          sudo useradd --system --no-create-home ephrunner-vm
           sudo scripts/test-firewall.sh
 
   # The job id is the required check's name, so it gets no `name:`.

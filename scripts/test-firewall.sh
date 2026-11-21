@@ -5,26 +5,23 @@
 # Checks what the runner firewall lets VMs and the controller reach. It
 # builds a throwaway host, a LAN neighbour and a router out of network
 # namespaces, loads the rules into the host's namespace only, so this
-# machine's own ruleset is never touched, and connects to listeners on each:
-# as a VM's user, a user of its own in the ephrunner-vm group; as the
-# controller's ephrunner user; and as root.
+# machine's own ruleset is never touched, and connects to listeners on each,
+# as the VMs' ephrunner-vm user, as the controller's ephrunner user, and as
+# root.
 #
 #   sudo scripts/test-firewall.sh [rules.nft]    default: packaging/firewall.nft
 #
-# Needs Linux, nft, ip, setpriv, OpenBSD netcat (nc), an ephrunner user and
-# an ephrunner-vm group, which the rules name. The addresses are
-# documentation ranges, standing in for public ones.
+# Needs Linux, nft, ip, setpriv, OpenBSD netcat (nc), and ephrunner and
+# ephrunner-vm users, which the rules name. The addresses are documentation
+# ranges, standing in for public ones.
 set -eu
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root: sudo $0 $*" >&2; exit 1; }
 rules=${1:-$(cd "$(dirname "$0")/.." && pwd)/packaging/firewall.nft}
 uid=$(id -u ephrunner 2>/dev/null) || { echo "No ephrunner user: create one first (useradd --system ephrunner)" >&2; exit 1; }
 gid=$(id -g ephrunner)
-vmgroup=$(getent group ephrunner-vm) || { echo "No ephrunner-vm group: create one first (groupadd --system ephrunner-vm)" >&2; exit 1; }
-vmgid=$(echo "$vmgroup" | cut -d: -f3)
-# Like the users systemd makes for VMs: one in no file, with nothing else
-# to its name than its group.
-vmuid=61999
+vmuid=$(id -u ephrunner-vm 2>/dev/null) || { echo "No ephrunner-vm user: create one first (useradd --system ephrunner-vm)" >&2; exit 1; }
+vmgid=$(id -g ephrunner-vm)
 
 # Named per run, so that two runs on one machine don't tear each other down.
 host=fwtest-host-$$ neighbour=fwtest-neighbour-$$ router=fwtest-router-$$

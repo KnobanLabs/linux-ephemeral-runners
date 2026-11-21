@@ -6,7 +6,8 @@
 # services (default weight 100) get twice the share all VMs together do, so
 # CI slows down rather than, say, a media server stuttering. To cap the VMs'
 # memory below the point where the host runs out, add MemoryMax= a little
-# above memory_budget_mb (see Capacity in README.md).
+# above memory_budget_mb plus an image build's 8 GB (see Capacity in
+# README.md).
 
 [Unit]
 Description=ephemeral-runners VMs

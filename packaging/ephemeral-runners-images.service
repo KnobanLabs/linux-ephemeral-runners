@@ -17,8 +17,9 @@ Type=oneshot
 User=ephrunner
 Group=ephrunner
 ExecStart=/usr/local/bin/ephemeral-runners -config-dir /etc/ephemeral-runners build-image
-# Builds are background work; jobs and the host's own services come first.
-# The build's VM runs with the job VMs, in system-ephemeralrunners.slice.
+# The build's own work (downloads, converting the image) is background
+# work, after jobs and the host's own services. Its VM runs with the job
+# VMs, at their priority, in system-ephemeralrunners.slice.
 Nice=10
 CPUWeight=20
 IOWeight=20
