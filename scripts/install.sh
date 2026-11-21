@@ -84,7 +84,7 @@ done
 # Until the controller restarts with this install's unit, below, it may be
 # one from an earlier install, whose VMs run as $user, or (if this install
 # stops before then) this install's binary, whose VMs run as $vmuser. Both
-# may ping until then.
+# may ping until then, and so may any group whose gid is between theirs.
 vmgid=$(id -g "$vmuser")
 gid=$(id -g "$user")
 ping_groups "$((vmgid < gid ? vmgid : gid))" "$((vmgid > gid ? vmgid : gid))"

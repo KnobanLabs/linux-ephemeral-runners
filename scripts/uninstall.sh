@@ -22,8 +22,8 @@ for u in $units ephemeral-runners-vm@.service system-ephemeralrunners.slice; do
 	rm -f "/etc/systemd/system/$u"
 done
 rm -f /etc/sysctl.d/60-ephemeral-runners.conf /etc/systemd/system/nftables.service.d/50-ephemeral-runners.conf
-# The kernel's default: no group may open unprivileged ICMP sockets.
-sysctl -q -w net.ipv4.ping_group_range="1 0"
+# Back to the host's own ping_group_range, from the files left.
+sysctl -q --system
 rmdir /run/ephemeral-runners 2>/dev/null || true
 rmdir /etc/systemd/system/nftables.service.d 2>/dev/null || true
 systemctl daemon-reload
