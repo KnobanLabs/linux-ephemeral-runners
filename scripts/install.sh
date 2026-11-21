@@ -28,6 +28,13 @@ bin=/usr/local/bin/ephemeral-runners
 # started with until then.
 units="ephemeral-runners-firewall.service ephemeral-runners-firewall-watch.service ephemeral-runners-firewall-watch.timer ephemeral-runners-vm.socket ephemeral-runners-vm@.service system-ephemeralrunners.slice ephemeral-runners-images.service ephemeral-runners-images.timer"
 
+# Let VMs ping: QEMU's user networking needs unprivileged ICMP sockets,
+# which this allows for the groups from $1 to $2.
+ping_groups() {
+	echo "net.ipv4.ping_group_range = $1 $2" >/etc/sysctl.d/60-ephemeral-runners.conf
+	sysctl -q -p /etc/sysctl.d/60-ephemeral-runners.conf
+}
+
 deployment_name() {
 	name=$(basename "$1" .toml)
 	if [ "$name" = config ]; then name=$(basename "$(dirname "$1")"); fi
@@ -73,6 +80,14 @@ install -d -o "$user" -g "$user" -m 0750 "$state" "$state/images" "$state/vms"
 for k in "$etc"/keys/*.pem; do
 	if [ -f "$k" ]; then chown root:"$user" "$k" && chmod 0640 "$k"; fi
 done
+
+# Until the controller restarts with this install's unit, below, it may be
+# one from an earlier install, whose VMs run as $user, or (if this install
+# stops before then) this install's binary, whose VMs run as $vmuser. Both
+# may ping until then.
+vmgid=$(id -g "$vmuser")
+gid=$(id -g "$user")
+ping_groups "$((vmgid < gid ? vmgid : gid))" "$((vmgid > gid ? vmgid : gid))"
 
 install -d "$share"
 install -m 0644 "$repo/packaging/firewall.nft" "$share/firewall.nft"
@@ -137,13 +152,8 @@ for f in "$@"; do
 	echo "Installed $dest"
 done
 
-# Let VMs ping: QEMU's user networking needs unprivileged ICMP sockets, which
-# this allows for the VMs' user's group only. Set here, with the restart,
-# so that jobs of a controller from an earlier install keep theirs until
-# then.
-gid=$(id -g "$vmuser")
-echo "net.ipv4.ping_group_range = $gid $gid" >/etc/sysctl.d/60-ephemeral-runners.conf
-sysctl -q -p /etc/sysctl.d/60-ephemeral-runners.conf
+# From the restart on, only VMs ping.
+ping_groups "$vmgid" "$vmgid"
 
 install -m 0644 "$repo/packaging/ephemeral-runners.service" /etc/systemd/system/ephemeral-runners.service
 systemctl daemon-reload

@@ -332,9 +332,10 @@ little as it can:
   and how it exited. The VM ends when that connection does: when the
   controller stops the VM, or stops itself. The VM user reaches the
   controller through nothing else.
-- **Each VM apart from the others.** Every VM's unit has its own process
+- **Each VM apart from the others.** Every VM's unit has its own IPC,
+  `/tmp` and `/dev/shm`, and on systemd 257 or later its own process
   namespace (`PrivatePIDs=`), so its QEMU sees, signals and traces no
-  other process, and its own IPC, `/tmp` and `/dev/shm`.
+  other process (see below for older systemd).
 - **QEMU's own sandbox** stays on (seccomp: no spawning, no new
   privileges, no obsolete syscalls), and the VM's unit has at least the
   controller's systemd hardening, with `/dev/kvm` as its only device.
