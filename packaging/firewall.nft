@@ -6,8 +6,12 @@
 # VM sends leaves the host as traffic from its QEMU process, which runs as
 # the ephrunner user. This table lets that user reach the internet, and
 # nothing on this host, the local network or other private ranges: no
-# services listening here, no LAN, no NAS. DNS goes through the host's own
-# resolver, which QEMU forwards guest lookups to.
+# services listening here, on any of the host's addresses, no private LAN,
+# no NAS, and nothing on the host's own links over IPv6, public addresses
+# included. Over IPv6 it can't tell the site's other routed subnets from
+# the internet; the router's firewall has to keep jobs out of those. DNS
+# goes through the host's own resolver, which QEMU forwards guest lookups
+# to.
 #
 # Blocked connections are refused at once, so a job probing the network
 # fails fast instead of waiting for a timeout.
@@ -61,6 +65,22 @@ table inet ephemeral_runners {
 
 	chain ephrunner {
 		ip daddr { 127.0.0.53, 127.0.0.54 } meta l4proto { tcp, udp } th dport 53 accept
+
+		# Every address this host holds, public ones included, looked up
+		# for each packet so that addresses added after loading (by DHCP or
+		# SLAAC, say) are covered too.
+		fib daddr type local meta l4proto tcp counter reject with tcp reset
+		fib daddr type local counter reject with icmpx admin-prohibited
+
+		# A public IPv6 address reached without a router is on one of this
+		# host's own links: LAN neighbours, the gateway's LAN address, Docker
+		# bridges, VPN tunnels. Routers advertise themselves from link-local
+		# addresses, so routes learnt from them have a link-local next hop.
+		# On a host whose IPv6 route out has a global next hop, or
+		# none (a PPP or WireGuard default route), jobs get no IPv6, as on
+		# a host without it.
+		rt ip6 nexthop != fe80::/10 meta l4proto tcp counter reject with tcp reset
+		rt ip6 nexthop != fe80::/10 counter reject with icmpx admin-prohibited
 
 		ip daddr @local4 meta l4proto tcp counter reject with tcp reset
 		ip daddr @local4 counter reject with icmpx admin-prohibited

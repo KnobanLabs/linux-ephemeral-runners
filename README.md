@@ -268,15 +268,23 @@ limits to know:
 - **The network:** a VM's traffic leaves the host as its QEMU process's own,
   which runs as `ephrunner`. `packaging/firewall.nft` lets that user reach the
   internet, and refuses everything on loopback, private, link-local, CGNAT
-  and multicast ranges: services on the host (including ones bound to
-  localhost), your LAN, Docker networks and cloud metadata. DNS goes only to
-  the host's resolver. VMs share no network with each other. The controller
-  refuses to run if the firewall isn't loaded. The rules live in a table of
-  their own, alongside ufw's and Docker's, which touch only their own; but
-  anything that flushes the whole ruleset removes it too. nftables.service
-  puts it back immediately (Ubuntu's flushes on every start, reload and
-  stop), and a watchdog timer checks every minute, restoring the table or,
-  failing that, stopping the runners.
+  and multicast ranges, every address the host itself holds, and IPv6
+  addresses on the host's own links: services on the host (including ones
+  bound to localhost or to a public address), your LAN, Docker networks and
+  cloud metadata. DNS goes only to the host's resolver. VMs share no network
+  with each other. The controller refuses to run if the firewall isn't
+  loaded. The rules live in a table of their own, alongside ufw's and
+  Docker's, which touch only their own; but anything that flushes the whole
+  ruleset removes it too. nftables.service puts it back immediately
+  (Ubuntu's flushes on every start, reload and stop), and a watchdog timer
+  checks every minute, restoring the table or, failing that, stopping the
+  runners. Two limits over IPv6: the firewall can't tell your other routed
+  subnets (another VLAN's public prefix, say) from the internet, so your
+  router's firewall has to keep jobs out of them; and on a host whose IPv6
+  default route has a public next hop, or none (PPP, WireGuard), jobs get
+  no IPv6 at all, as on a host without it. `sudo scripts/test-firewall.sh`
+  checks the rules in throwaway network namespaces on a Linux machine with
+  nftables, iproute2, OpenBSD netcat and an `ephrunner` user.
 - **Inside the VM:** jobs run as `runner` with passwordless sudo, like
   GitHub-hosted runners. The VM's single-use runner registration is readable
   from inside the VM; it is valid only for that one job.

@@ -58,6 +58,15 @@ jobs:
       - name: Lint shell scripts
         run: shellcheck scripts/*.sh packaging/firewall-watch images/provision.sh images/preload.sh images/eph-runner-prepare images/eph-runner-start
 
+      - name: Test the firewall
+        run: |
+          if ! command -v nft >/dev/null || ! command -v nc >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends nftables netcat-openbsd
+          fi
+          sudo useradd --system --no-create-home ephrunner
+          sudo scripts/test-firewall.sh
+
   # The job id is the required check's name, so it gets no `name:`.
   validation-outcome: # zizmor: ignore[anonymous-definition]
     needs: [validate]
