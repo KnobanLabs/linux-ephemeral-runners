@@ -4,8 +4,8 @@
 #
 # What jobs can reach. VMs use QEMU's user-mode networking, so everything a
 # VM sends leaves the host as traffic from its QEMU process, which runs as
-# the ephrunner user. This table lets that user reach the internet, and
-# nothing on this host, the local network or other private ranges: no
+# the ephrunner-vm user. This table lets that user, and the controller's
+# ephrunner user, reach the internet, and nothing on this host, the local network or other private ranges: no
 # services listening here, on any of the host's addresses, no private LAN,
 # no NAS, and nothing on the host's own links over IPv6, public addresses
 # included. Over IPv6 it can't tell the site's other routed subnets from
@@ -57,9 +57,11 @@ table inet ephemeral_runners {
 	chain output {
 		type filter hook output priority filter; policy accept;
 
-		# Only packets that belong to the runner user's sockets are
-		# restricted. The resets and ICMP errors the rules below send back
-		# have no socket, so they pass, and blocked connections fail at once.
+		# Only packets that belong to the VMs' or the controller's sockets
+		# are restricted. The resets and ICMP errors the rules below send
+		# back have no socket, so they pass, and blocked connections fail
+		# at once.
+		meta skuid "ephrunner-vm" jump ephrunner
 		meta skuid "ephrunner" jump ephrunner
 	}
 

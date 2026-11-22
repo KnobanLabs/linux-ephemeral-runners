@@ -175,11 +175,11 @@ func (c *poolController) serve(ctx context.Context, log *slog.Logger, r *runner)
 	vm, err = c.qemu.Start(VMSpec{
 		Name:      r.name,
 		Disk:      disk,
+		Backing:   c.image,
 		CPU:       c.pool.CPU,
 		MemoryMB:  c.pool.MemoryMB,
 		JITDisk:   jitFile,
 		ExtraArgs: c.pool.QEMUArgs,
-		PIDFile:   filepath.Join(dir, "qemu.pid"),
 	}, out)
 	if err != nil {
 		return err

@@ -181,6 +181,25 @@ func LoadConfig(dir string) (*Config, error) {
 	return cfg, cfg.Validate()
 }
 
+// PrivatePaths are what VMs must not read: the config directory, the files
+// the controller reads from it, and every deployment's key.
+func (c *Config) PrivatePaths() []string {
+	paths := []string{c.Dir, filepath.Join(c.Dir, "deployments"), filepath.Join(c.Dir, "host.toml"), filepath.Join(c.Dir, "preload.toml")}
+	for _, d := range c.Deployments {
+		paths = append(paths, d.Path)
+		if d.GitHubApp != nil {
+			paths = append(paths, filepath.Dir(d.GitHubApp.PrivateKeyPath), d.GitHubApp.PrivateKeyPath)
+		}
+	}
+	for i, p := range paths {
+		if abs, err := filepath.Abs(p); err == nil {
+			paths[i] = abs
+		}
+	}
+	slices.Sort(paths)
+	return slices.Compact(paths)
+}
+
 // DeploymentName derives a deployment's name from its file: the file name
 // without .toml, or for <name>/config.toml, <name>.
 func DeploymentName(path string) string {

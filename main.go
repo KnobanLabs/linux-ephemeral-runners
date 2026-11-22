@@ -24,8 +24,9 @@ const usage = `usage: ephemeral-runners [-config-dir dir] <command>
 
 commands:
   run      register every deployment's scale sets and serve jobs until stopped
-  check    validate the config (preload.toml too), credentials, images, KVM
-           and budget, then exit
+  check    validate the config (preload.toml too), credentials, images, the
+           VM user (KVM, and no access to the config or keys) and budget,
+           then exit
   cleanup  delete leftover VMs and their runner registrations, then exit
   build-image [-disk-gb N] [name...]
            build golden images (default: every image the deployments use).
@@ -36,6 +37,8 @@ commands:
   validate-config <deployment.toml>...
            check deployment files offline (no GitHub, QEMU or keys needed),
            e.g. in a config repo's CI
+  vm       serve one connection to the VM launcher's socket, on standard
+           input; ephemeral-runners-vm@.service runs it, not you
   preload-config <file>...
            print a preload.toml with the pins found in the files: the
            Playwright version of a package-lock.json, and every image
@@ -80,6 +83,14 @@ func main() {
 		return
 	case "build-image":
 		if err := buildImagesCommand(ctx, *configDir, flag.Args()[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	case "vm":
+		// Run by ephemeral-runners-vm@.service, as the VM user, which
+		// can't read the config.
+		if err := serveVMStdin(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -189,7 +200,7 @@ func run(ctx context.Context, cfg *Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if err := CheckKVM(); err != nil {
+	if err := qemu.checkVMUser(cfg.PrivatePaths()); err != nil {
 		return err
 	}
 	clients, err := newClients(ctx, cfg)
@@ -279,12 +290,14 @@ func checkImages(cfg *Config) error {
 }
 
 func check(ctx context.Context, cfg *Config, log *slog.Logger) error {
-	if _, err := newQEMU(cfg.Host.QEMU); err != nil {
+	qemu, err := newQEMU(cfg.Host.QEMU)
+	if err != nil {
 		return err
 	}
-	if err := CheckKVM(); err != nil {
+	if err := qemu.checkVMUser(cfg.PrivatePaths()); err != nil {
 		return err
 	}
+	log.Info("VMs run under a user of their own, which can use KVM and can't read the config or keys")
 	budget, err := cfg.ResolveBudget()
 	if err != nil {
 		return err
@@ -293,7 +306,7 @@ func check(ctx context.Context, cfg *Config, log *slog.Logger) error {
 	if err := checkImages(cfg); err != nil {
 		return err
 	}
-	log.Info("KVM, QEMU and images present", slog.Any("images", cfg.Images()))
+	log.Info("QEMU and images present", slog.Any("images", cfg.Images()))
 	// Image builds read preload.toml; the controller never does.
 	preload, err := LoadPreload(cfg.Dir)
 	if err != nil {
@@ -363,7 +376,7 @@ func buildImagesCommand(ctx context.Context, configDir string, args []string) er
 	if err != nil {
 		return err
 	}
-	if err := CheckKVM(); err != nil {
+	if err := qemu.checkVMUser((&Config{Dir: configDir}).PrivatePaths()); err != nil {
 		return err
 	}
 	for _, name := range names {

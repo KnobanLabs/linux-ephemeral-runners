@@ -2,23 +2,26 @@
 # Copyright 2026 Knoban LLC
 # SPDX-License-Identifier: MIT
 #
-# Checks what the runner firewall lets the ephrunner user reach. It builds a
-# throwaway host, a LAN neighbour and a router out of network namespaces,
-# loads the rules into the host's namespace only, so this machine's own
-# ruleset is never touched, and connects to listeners on each, as ephrunner
-# and as root.
+# Checks what the runner firewall lets VMs and the controller reach. It
+# builds a throwaway host, a LAN neighbour and a router out of network
+# namespaces, loads the rules into the host's namespace only, so this
+# machine's own ruleset is never touched, and connects to listeners on each,
+# as the VMs' ephrunner-vm user, as the controller's ephrunner user, and as
+# root.
 #
 #   sudo scripts/test-firewall.sh [rules.nft]    default: packaging/firewall.nft
 #
-# Needs Linux, nft, ip, setpriv, OpenBSD netcat (nc) and an ephrunner user,
-# which the rules name. The addresses are documentation ranges, standing in
-# for public ones.
+# Needs Linux, nft, ip, setpriv, OpenBSD netcat (nc), and ephrunner and
+# ephrunner-vm users, which the rules name. The addresses are documentation
+# ranges, standing in for public ones.
 set -eu
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root: sudo $0 $*" >&2; exit 1; }
 rules=${1:-$(cd "$(dirname "$0")/.." && pwd)/packaging/firewall.nft}
 uid=$(id -u ephrunner 2>/dev/null) || { echo "No ephrunner user: create one first (useradd --system ephrunner)" >&2; exit 1; }
 gid=$(id -g ephrunner)
+vmuid=$(id -u ephrunner-vm 2>/dev/null) || { echo "No ephrunner-vm user: create one first (useradd --system ephrunner-vm)" >&2; exit 1; }
+vmgid=$(id -g ephrunner-vm)
 
 # Named per run, so that two runs on one machine don't tear each other down.
 host=fwtest-host-$$ neighbour=fwtest-neighbour-$$ router=fwtest-router-$$
@@ -67,9 +70,13 @@ listen() { # namespace address port
 }
 
 failures=0
-check() { # want(connects|refused) user namespace address port what
+check() { # want(connects|refused) user(vm|ephrunner|root) namespace address port what
 	want=$1 user=$2 ns=$3 addr=$4 port=$5 what=$6
-	if [ "$user" = root ]; then as=; else as="setpriv --reuid=$uid --regid=$gid --clear-groups"; fi
+	case $user in
+	root) as= ;;
+	ephrunner) as="setpriv --reuid=$uid --regid=$gid --clear-groups" ;;
+	vm) as="setpriv --reuid=$vmuid --regid=$vmgid --clear-groups" ;;
+	esac
 	# shellcheck disable=SC2086 # $as is a command prefix, split on purpose
 	if ip netns exec "$ns" $as nc -z -w 2 "$addr" "$port" 2>/dev/null; then got=connects; else got=refused; fi
 	if [ "$got" = "$want" ]; then
@@ -81,10 +88,16 @@ check() { # want(connects|refused) user namespace address port what
 }
 
 # Each target is checked as root first, which the firewall doesn't restrict,
-# so a refusal as ephrunner is the firewall's and not a missing listener.
+# so a refusal as a VM or ephrunner is the firewall's and not a missing
+# listener.
 blocked() { # address port what
 	check connects root $host "$1" "$2" "$3"
+	check refused vm $host "$1" "$2" "$3"
 	check refused ephrunner $host "$1" "$2" "$3"
+}
+allowed() { # address port what
+	check connects vm $host "$1" "$2" "$3"
+	check connects ephrunner $host "$1" "$2" "$3"
 }
 
 for a in 127.0.0.1 ::1 2001:db8:a::1 2001:db8:b::1 2001:db8:c::1 198.51.100.1 203.0.113.1; do
@@ -98,9 +111,9 @@ sleep 1
 
 ip netns exec $host nft -f "$rules"
 
-check connects ephrunner $host 127.0.0.53 53 "the host's resolver"
-check connects ephrunner $host 2001:db8:f::1 8000 "the internet over IPv6"
-check connects ephrunner $host 192.0.2.1 8000 "the internet over IPv4"
+allowed 127.0.0.53 53 "the host's resolver"
+allowed 2001:db8:f::1 8000 "the internet over IPv6"
+allowed 192.0.2.1 8000 "the internet over IPv4"
 blocked 127.0.0.1 8000 "the host's loopback"
 blocked ::1 8000 "the host's IPv6 loopback"
 blocked 198.51.100.1 8000 "a public IPv4 address of the host's own"

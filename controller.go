@@ -328,9 +328,9 @@ func cleanupLeftovers(ctx context.Context, log *slog.Logger, vmsDir string, clie
 			continue
 		}
 		log.Info("Removing leftover VM", slog.String("vm", name))
-		dir := filepath.Join(vmsDir, name)
-		killLeftover(filepath.Join(dir, "qemu.pid"), name)
-		if err := os.RemoveAll(dir); err != nil {
+		// Its QEMU, if it outlived the run, ends with that run's
+		// connection to its VM launcher.
+		if err := os.RemoveAll(filepath.Join(vmsDir, name)); err != nil {
 			log.Error("Failed to delete leftover VM", slog.String("vm", name), slog.Any("error", err))
 		}
 		client := clients[deployment]

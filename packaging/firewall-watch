@@ -24,5 +24,5 @@ if systemctl reload ephemeral-runners-firewall.service && nft list table inet ep
 fi
 
 echo "Couldn't restore the ephemeral-runners firewall; stopping the runners so no VM runs unrestricted" >&2
-systemctl stop ephemeral-runners.service ephemeral-runners-images.service
+systemctl stop ephemeral-runners.service ephemeral-runners-images.service 'ephemeral-runners-vm@*.service'
 exit 1

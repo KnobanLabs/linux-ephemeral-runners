@@ -8,17 +8,18 @@
 [Unit]
 Description=Rebuild ephemeral-runners golden images
 Documentation=https://github.com/KnobanLabs/linux-ephemeral-runners
-Wants=network-online.target
-After=network-online.target ephemeral-runners-firewall.service
+Wants=network-online.target ephemeral-runners-vm.socket
+After=network-online.target ephemeral-runners-firewall.service ephemeral-runners-vm.socket
 BindsTo=ephemeral-runners-firewall.service
 
 [Service]
 Type=oneshot
 User=ephrunner
 Group=ephrunner
-SupplementaryGroups=kvm
 ExecStart=/usr/local/bin/ephemeral-runners -config-dir /etc/ephemeral-runners build-image
-# Builds are background work; jobs and the host's own services come first.
+# The build's own work (downloads, converting the image) is background
+# work, after jobs and the host's own services. Its VM runs with the job
+# VMs, at their priority, in system-ephemeralrunners.slice.
 Nice=10
 CPUWeight=20
 IOWeight=20
@@ -32,7 +33,6 @@ ReadWritePaths=/var/lib/ephemeral-runners
 ProtectHome=yes
 PrivateTmp=yes
 DevicePolicy=closed
-DeviceAllow=/dev/kvm rw
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
