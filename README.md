@@ -186,10 +186,11 @@ afterwards, so workflows don't change when the host or the maintainer does.
 
    This installs QEMU and the other packages it needs, creates the
    `ephrunner` and `ephrunner-vm` users, loads the firewall, builds any
-   golden image that's missing (several minutes each), and checks everything
-   together (config, keys, images, the VMs' user, GitHub access, budget).
-   Only if that passes does it install the config and (re)start the service.
-   Pass several configs to install several deployments at once.
+   golden image that's missing (a quarter of an hour or so each), and
+   checks everything together (config, keys, images, the VMs' user, GitHub
+   access, budget). Only if that passes does it install the config and
+   (re)start the service. Pass several configs to install several
+   deployments at once.
 
 7. **Verify.** Copy `examples/smoke_test.yaml` into `.github/workflows/` of a
    **private** repo that can use the runners, and run it with your pool names:
@@ -388,8 +389,8 @@ sudo systemctl set-property system-ephemeralrunners.slice MemoryMax=124G
 
 A pool's `max_runners` is an upper bound on top of the budgets, and jobs
 beyond what fits wait in GitHub's queue. Image builds (weekly, about 4 vCPUs
-and 8 GB for a few minutes) run outside the budget: their downloads and
-conversions at low priority, and their VM with the job VMs.
+and 8 GB for a quarter of an hour or so) run outside the budget: their
+downloads and conversions at low priority, and their VM with the job VMs.
 
 ### Sizing pools like GitHub-hosted runners
 
@@ -511,16 +512,17 @@ nothing it pulls should need any.
 
 ### What preloading costs
 
-Measured in one image build on a 16-core host, preloading Node.js 24, a
-lockfile's 832 npm packages, Playwright's three browsers and 15 container
-images. The build took 15 minutes 46 seconds, and the image uses 15.5 GiB of
-disk (`qemu-img info`'s disk size). Most of the build is the provisioning
-every image gets, with or without preloading: the first item started about
-13 minutes in. The items took 2 minutes 33 seconds of their 20-minute total:
+Measured in one image build on a 16-core host (a build's VM always gets 4
+vCPUs), preloading Node.js 24, a lockfile's 832 npm packages, Playwright's
+three browsers and 15 container images. The build took 15 minutes 46
+seconds, and the image uses 15.5 GiB of disk (`qemu-img info`'s disk size).
+Most of the build is the provisioning every image gets, with or without
+preloading: the first item started about 13 minutes in. The items took 2
+minutes 33 seconds of their 20-minute total:
 
 | Item | Time | Size in the image |
 |---|---|---|
-| Node.js 24 (24.22.3) | 2 s | about 220 MB unpacked, from a 32 MB download |
+| Node.js 24 (24.22.3) | 2 s | about 220 MB unpacked, from a 32 MB download, measured outside a build |
 | 832 npm packages | 21 s | 245 MB of npm cache |
 | Playwright 1.63.0: Chromium, Firefox, WebKit | 50 s | not measured on its own |
 | 15 container images | 80 s, 2–22 s each | not measured on its own |
