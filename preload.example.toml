@@ -4,13 +4,28 @@
 # host, and scripts/install.sh never overwrites it.
 #
 # Generate it from your repositories' own pins rather than by hand:
-#   ephemeral-runners preload-config path/to/package-lock.json path/to/compose.yaml ...
+#   ephemeral-runners preload-config path/to/package-lock.json path/to/.nvmrc path/to/compose.yaml ...
 # See "Preloading" in README.md. New images pick up a change at the weekly
 # rebuild, or at once with: sudo systemctl start ephemeral-runners-images
 #
 # Preloading only saves time. A job whose pins differ downloads what it
 # needs, as it would without this, and an item that fails to preload is
 # left out of the image, with a warning in the image service's log.
+
+# Node.js versions for actions/setup-node, in the runner tool cache, where
+# it looks before downloading. A major version ("24") takes the newest
+# stable release of it at each build, as setup-node's manifest lists it; an
+# exact version ("24.11.1") takes that one. A job that asks for a major
+# version gets the image's; with check-latest: true it downloads a newer one.
+# node = ["24"]
+
+# npm packages for the runner user's npm cache (~/.npm), where npm ci looks
+# before downloading, each as "<tarball URL> <sha512 integrity>", from the
+# public registry only. Generate it from a package-lock.json with
+# preload-config. Needs a node version above, whose npm fills the cache.
+# npm_packages = [
+#   "https://registry.npmjs.org/left-pad/-/left-pad-1.3.0.tgz sha512-...",
+# ]
 
 # Playwright versions whose browsers go in the runner user's
 # ~/.cache/ms-playwright, where Playwright looks by default, with the
