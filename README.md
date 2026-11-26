@@ -533,9 +533,11 @@ Ubuntu's archive; a build's own are on its `EPH-PRELOAD-TOOK` lines. The
 same image, built on a second host the same day, took 45 minutes of a
 build's 70-minute limit: its main `apt-get install` downloaded from
 `archive.ubuntu.com` at 75 kB/s for 33 minutes, where the first build took
-5 seconds. Its items took 4 minutes 37 seconds of their 20 minutes: Node.js
-and the npm packages 22 seconds, and the slowest, Playwright's browsers, 177
-seconds, most of it the same slow apt downloads for their system packages.
+5 seconds. The first build had crawling downloads too, at other steps, so
+neither time is a best case. The second build's items took 4 minutes 37
+seconds of their 20 minutes: Node.js and the npm packages 22 seconds, and
+the slowest, Playwright's browsers, 177 seconds, most of it slower apt
+downloads for their system packages.
 
 ## Operating
 
