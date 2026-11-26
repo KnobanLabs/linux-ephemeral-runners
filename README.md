@@ -528,12 +528,14 @@ minutes 33 seconds of their 20-minute total:
 | 15 container images | 80 s, 2–22 s each | not measured on its own |
 
 So Node.js and the npm packages add about 0.47 GB to an image and under half
-a minute to its build. Times depend on the host's connection and CPU; a
-build's own are on its `EPH-PRELOAD-TOOK` lines. The same image, built on a
-host that gives image builds a low CPU weight behind its other services,
-took 45 minutes of a build's 70-minute limit. Its items took 4 minutes 37
-seconds of their 20 minutes: Node.js and the npm packages 22 seconds, and
-the slowest, Playwright's browsers, 177 seconds.
+a minute to its build. Times depend most on the connection, including to
+Ubuntu's archive; a build's own are on its `EPH-PRELOAD-TOOK` lines. The
+same image, built on a second host the same day, took 45 minutes of a
+build's 70-minute limit: its main `apt-get install` downloaded from
+`archive.ubuntu.com` at 75 kB/s for 33 minutes, where the first build took
+5 seconds. Its items took 4 minutes 37 seconds of their 20 minutes: Node.js
+and the npm packages 22 seconds, and the slowest, Playwright's browsers, 177
+seconds, most of it the same slow apt downloads for their system packages.
 
 ## Operating
 
