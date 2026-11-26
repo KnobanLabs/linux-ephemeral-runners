@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +21,14 @@ import (
 // It only saves time. A job whose pins differ downloads what it needs, as
 // it would without it, so a list that has fallen behind never breaks one.
 type Preload struct {
+	// Node lists Node.js versions unpacked in the runner tool cache, where
+	// actions/setup-node looks before downloading: a major version, which
+	// takes its newest release at each build, or an exact one.
+	Node []string `toml:"node"`
+	// NPMPackages are tarballs put in the runner user's npm cache, each
+	// "<tarball URL> <sha512 integrity>" from a package-lock.json. npm ci
+	// looks a lockfile's packages up there by integrity before downloading.
+	NPMPackages []string `toml:"npm_packages"`
 	// Playwright lists Playwright versions whose browsers are installed in
 	// the runner user's cache, where Playwright looks by default, with the
 	// system packages they need.
@@ -36,6 +45,11 @@ const preloadFile = "preload.toml"
 var defaultPlaywrightBrowsers = []string{"chromium", "firefox", "webkit"}
 
 var (
+	nodeVersionRE = regexp.MustCompile(`^[0-9]+(\.[0-9]+\.[0-9]+)?$`)
+	// A tarball on the public npm registry, and the SHA-512 integrity that
+	// npm ci finds it by in the cache.
+	npmPackageRE = regexp.MustCompile(`^https://registry\.npmjs\.org/(@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+/-/[A-Za-z0-9._~-]+\.tgz` +
+		` sha512-[A-Za-z0-9+/]{86}==$`)
 	playwrightVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
 	browserNameRE       = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	// An image reference pinned by digest, such as
@@ -75,6 +89,19 @@ func LoadPreload(dir string) (Preload, error) {
 
 func (p Preload) Validate() error {
 	var errs []error
+	for _, v := range p.Node {
+		if !nodeVersionRE.MatchString(v) {
+			errs = append(errs, fmt.Errorf("%s: node %q must be a major version such as 24, or an exact one such as 24.11.1", preloadFile, v))
+		}
+	}
+	for _, pkg := range p.NPMPackages {
+		if !npmPackageRE.MatchString(pkg) {
+			errs = append(errs, fmt.Errorf("%s: npm_packages: %q must be a https://registry.npmjs.org/ tarball URL, a space and its sha512- integrity", preloadFile, pkg))
+		}
+	}
+	if len(p.NPMPackages) > 0 && len(p.Node) == 0 {
+		errs = append(errs, fmt.Errorf("%s: npm_packages needs a node version, whose npm fills the cache", preloadFile))
+	}
 	for _, v := range p.Playwright {
 		if !playwrightVersionRE.MatchString(v) {
 			errs = append(errs, fmt.Errorf("%s: playwright %q must be a version such as 1.56.0", preloadFile, v))
@@ -95,8 +122,19 @@ func (p Preload) Validate() error {
 
 // guestList is the preload list as provision.sh reads it: one item per
 // line, a kind and its arguments, every word already checked by Validate.
+// Node.js and the npm cache come first: they take the least time and help
+// the most jobs, so they shouldn't be what the total time limit cuts.
 func (p Preload) guestList() string {
 	var b strings.Builder
+	for _, v := range p.Node {
+		fmt.Fprintf(&b, "node %s\n", v)
+	}
+	// One item for all the packages, too many for its arguments: they go to
+	// the guest in a file of their own, which the item names by its hash, so
+	// a changed lockfile is a changed item.
+	if list := p.npmPackageList(); list != "" {
+		fmt.Fprintf(&b, "npm %d sha256:%x\n", strings.Count(list, "\n"), sha256.Sum256([]byte(list)))
+	}
 	for _, v := range p.Playwright {
 		fmt.Fprintf(&b, "playwright %s %s\n", v, strings.Join(p.PlaywrightBrowsers, " "))
 	}
@@ -104,6 +142,16 @@ func (p Preload) guestList() string {
 		fmt.Fprintf(&b, "docker %s\n", ref)
 	}
 	return b.String()
+}
+
+// npmPackageList is the file preload.sh's npm item reads: the packages,
+// sorted and without repeats, one per line.
+func (p Preload) npmPackageList() string {
+	if len(p.NPMPackages) == 0 {
+		return ""
+	}
+	pkgs := slices.Compact(slices.Sorted(slices.Values(p.NPMPackages)))
+	return strings.Join(pkgs, "\n") + "\n"
 }
 
 // preloadItems splits a guest list, or an image's preload record, into its
@@ -169,22 +217,33 @@ func checkPreloadRecords(log *slog.Logger, cfg *Config, p Preload) {
 }
 
 // writePreloadConfig writes a preload.toml with the pins found in files:
-// the Playwright version a package-lock.json installs, and every image
-// reference pinned by digest in any of them.
-func writePreloadConfig(w io.Writer, files []string) error {
+// from a package-lock.json, the Playwright version it installs and its npm
+// packages; from a .nvmrc or .node-version, the Node.js version; and from
+// any of them, every image reference pinned by digest. Notes go to stderr.
+func writePreloadConfig(w, stderr io.Writer, files []string) error {
 	var p Preload
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			return err
 		}
-		if filepath.Base(f) == "package-lock.json" {
-			v, err := lockedPlaywright(data)
+		switch filepath.Base(f) {
+		case "package-lock.json":
+			lock, err := readLockfile(data)
 			if err != nil {
 				return fmt.Errorf("%s: %w", f, err)
 			}
-			if v != "" && !slices.Contains(p.Playwright, v) {
-				p.Playwright = append(p.Playwright, v)
+			if lock.playwright != "" && !slices.Contains(p.Playwright, lock.playwright) {
+				p.Playwright = append(p.Playwright, lock.playwright)
+			}
+			p.NPMPackages = append(p.NPMPackages, lock.packages...)
+		case ".nvmrc", ".node-version":
+			v := strings.TrimPrefix(strings.TrimSpace(string(data)), "v")
+			if !nodeVersionRE.MatchString(v) {
+				return fmt.Errorf("%s: %q isn't a major or exact Node.js version; set node in preload.toml by hand", f, strings.TrimSpace(string(data)))
+			}
+			if !slices.Contains(p.Node, v) {
+				p.Node = append(p.Node, v)
 			}
 		}
 		for _, ref := range pinnedImages(string(data)) {
@@ -193,9 +252,15 @@ func writePreloadConfig(w io.Writer, files []string) error {
 			}
 		}
 	}
-	if len(p.Playwright) == 0 && len(p.DockerImages) == 0 {
-		return fmt.Errorf("found no Playwright version or image pinned by digest in %s", strings.Join(files, ", "))
+	if len(p.NPMPackages) > 0 && len(p.Node) == 0 {
+		fmt.Fprintf(stderr, "Leaving out the lockfile's npm packages: they need a Node.js version. Pass the project's .nvmrc or .node-version too.\n")
+		p.NPMPackages = nil
 	}
+	if len(p.Node) == 0 && len(p.Playwright) == 0 && len(p.DockerImages) == 0 {
+		return fmt.Errorf("found no Node.js or Playwright version or image pinned by digest in %s", strings.Join(files, ", "))
+	}
+	slices.Sort(p.Node)
+	p.NPMPackages = slices.Compact(slices.Sorted(slices.Values(p.NPMPackages)))
 	slices.Sort(p.Playwright)
 	slices.Sort(p.DockerImages)
 	if err := p.Validate(); err != nil {
@@ -205,6 +270,12 @@ func writePreloadConfig(w io.Writer, files []string) error {
 	var b strings.Builder
 	b.WriteString("# Written by `ephemeral-runners preload-config`. Install it as\n")
 	b.WriteString("# /etc/ephemeral-runners/preload.toml; see \"Preloading\" in README.md.\n")
+	if len(p.Node) > 0 {
+		fmt.Fprintf(&b, "node = [%s]\n", quoteList(p.Node, ", "))
+	}
+	if len(p.NPMPackages) > 0 {
+		fmt.Fprintf(&b, "npm_packages = [\n  %s,\n]\n", quoteList(p.NPMPackages, ",\n  "))
+	}
 	if len(p.Playwright) > 0 {
 		fmt.Fprintf(&b, "playwright = [%s]\n", quoteList(p.Playwright, ", "))
 	}
@@ -254,19 +325,86 @@ func isHexDigit(c byte) bool {
 	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f'
 }
 
-// lockedPlaywright is the version of playwright-core, which holds the
-// browser revisions, that a package-lock.json (v2 or later) installs at the
-// top level, or "" if it installs none.
-func lockedPlaywright(data []byte) (string, error) {
+// lockfile is what preload-config takes from a package-lock.json (v2 or
+// later): the version of playwright-core, which holds the browser
+// revisions, installed at the top level, or "" for none; and the packages
+// npm ci would download on a job's VM, as npmPackageRE has them.
+type lockfile struct {
+	playwright string
+	packages   []string
+}
+
+func readLockfile(data []byte) (lockfile, error) {
 	var lock struct {
 		Packages map[string]struct {
-			Version string `json:"version"`
+			Version   string     `json:"version"`
+			Resolved  string     `json:"resolved"`
+			Integrity string     `json:"integrity"`
+			Link      bool       `json:"link"`
+			InBundle  bool       `json:"inBundle"`
+			OS        stringList `json:"os"`
+			CPU       stringList `json:"cpu"`
+			Libc      stringList `json:"libc"`
 		} `json:"packages"`
 	}
 	if err := json.Unmarshal(data, &lock); err != nil {
-		return "", fmt.Errorf("parse package-lock.json: %w", err)
+		return lockfile{}, fmt.Errorf("parse package-lock.json: %w", err)
 	}
-	return lock.Packages["node_modules/playwright-core"].Version, nil
+	l := lockfile{playwright: lock.Packages["node_modules/playwright-core"].Version}
+	for path, pkg := range lock.Packages {
+		// The root is the project itself, a link is a local directory, and
+		// a bundled package comes inside another's tarball.
+		if path == "" || pkg.Link || pkg.InBundle {
+			continue
+		}
+		// npm skips a package whose platform rules out the VMs'.
+		if !platformAllows(pkg.OS, "linux") || !platformAllows(pkg.CPU, "x64") || !platformAllows(pkg.Libc, "glibc") {
+			continue
+		}
+		// A package from another registry, a git or a file dependency, or
+		// one with only an older hash just downloads on the job.
+		for _, integrity := range strings.Fields(pkg.Integrity) {
+			if entry := pkg.Resolved + " " + integrity; npmPackageRE.MatchString(entry) {
+				l.packages = append(l.packages, entry)
+				break
+			}
+		}
+	}
+	return l, nil
+}
+
+// platformAllows tells whether a package's os, cpu or libc list lets npm
+// install it where that value holds, as npm-install-checks decides it:
+// none of the "!"-negated entries match, and one of the others does, if
+// there are any.
+func platformAllows(list []string, value string) bool {
+	if len(list) == 1 && list[0] == "any" {
+		return true
+	}
+	negated, match := 0, false
+	for _, entry := range list {
+		if test, ok := strings.CutPrefix(entry, "!"); ok {
+			negated++
+			if test == value {
+				return false
+			}
+		} else if entry == value {
+			match = true
+		}
+	}
+	return match || negated == len(list)
+}
+
+// stringList is a package.json field that may be a string or a list of them.
+type stringList []string
+
+func (l *stringList) UnmarshalJSON(data []byte) error {
+	var one string
+	if err := json.Unmarshal(data, &one); err == nil {
+		*l = stringList{one}
+		return nil
+	}
+	return json.Unmarshal(data, (*[]string)(l))
 }
 
 // quoteList quotes words that Validate has checked, so each is a valid TOML

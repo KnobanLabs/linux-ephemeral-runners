@@ -61,8 +61,9 @@ flowchart TB
   latest Actions runner, Docker and common build tools. A weekly timer
   rebuilds them, so images carry current security updates and a runner
   version GitHub still accepts. Optionally, they also come with the
-  Playwright browsers and container images your jobs pin, so jobs needn't
-  download them each time; see [Preloading](#preloading).
+  Node.js versions, npm packages, Playwright browsers and container images
+  your jobs pin, so jobs needn't download them each time; see
+  [Preloading](#preloading).
 - **Single-use VMs:** a job's disk is a copy-on-write overlay on the golden
   image, created in an instant and deleted afterwards. Its just-in-time runner
   registration, valid for one job, reaches the VM through QEMU's firmware
@@ -128,7 +129,9 @@ afterwards, so workflows don't change when the host or the maintainer does.
 - **Disk:** about 15 GB per golden image, plus what running jobs write.
   Overlays are copy-on-write. [Preloading](#preloading) adds its unpacked
   size to each image, and up to three times that while one is rebuilt (the
-  old image, the build's disk and the new image).
+  old image, the build's disk and the new image): for example about 0.45 GB
+  for Node.js and a lockfile's 830 npm packages, so up to 1.4 GB during a
+  rebuild.
 - **RAM and CPU:** whatever you budget for VMs (see [Capacity](#capacity)),
   plus what the host's own services need.
 
@@ -160,8 +163,9 @@ afterwards, so workflows don't change when the host or the maintainer does.
    scp ~/Downloads/<app-slug>.*.private-key.pem root@<host>:/etc/ephemeral-runners/keys/<name>.pem
    ```
 
-5. **Choose what the images preload** (optional). If jobs install
-   Playwright's browsers or pull container images pinned by digest, generate a
+5. **Choose what the images preload** (optional). If jobs set up Node.js,
+   run `npm ci`, install Playwright's browsers or pull container images
+   pinned by digest, generate a
    `preload.toml` as [Preloading](#preloading) shows and put it in place now,
    so the images the next step builds come with them:
 
@@ -412,11 +416,23 @@ jobs room in. So a job can write more here than it may on GitHub's runner.
 
 ## Preloading
 
-Jobs that install Playwright's browsers, or pull the same pinned container
-images, download them again in every job, since every VM starts from the
-golden image. List them in `/etc/ephemeral-runners/preload.toml`, and every
-golden image this host builds comes with them:
+Jobs that set up Node.js, install a lockfile's npm packages or Playwright's
+browsers, or pull the same pinned container images, download them again in
+every job, since every VM starts from the golden image. List them in
+`/etc/ephemeral-runners/preload.toml`, and every golden image this host
+builds comes with them:
 
+- **Node.js:** each version is unpacked in the runner tool cache
+  (`/opt/hostedtoolcache`), where `actions/setup-node` looks before
+  downloading, as it would cache the version itself. A major version
+  (`"24"`) takes its newest stable release at each build, from the manifest
+  `setup-node` picks from; the download is checked against nodejs.org's
+  checksums.
+- **npm packages:** a lockfile's tarballs go in the runner user's npm cache
+  (`~/.npm`), where `npm ci` finds each by its integrity before downloading.
+  The build fills the cache with `npm cache add`, which runs no package
+  scripts, using the npm of the newest Node.js preloaded, and keeps either
+  every package or none.
 - **Playwright:** each version's browsers go in the runner user's
   `~/.cache/ms-playwright`, where Playwright looks by default, so jobs need
   no settings. Their system packages are installed, as
@@ -428,7 +444,7 @@ by hand. Run this on any machine with a checkout and Go:
 
 ```bash
 go run github.com/KnobanLabs/linux-ephemeral-runners@develop preload-config \
-  package-lock.json compose.yaml > preload.toml
+  package-lock.json .nvmrc compose.yaml > preload.toml
 sudo install -o root -g ephrunner -m 0640 preload.toml /etc/ephemeral-runners/preload.toml
 sudo -u ephrunner ephemeral-runners check        # checks it with the rest of the config
 sudo systemctl start ephemeral-runners-images    # or wait for the weekly rebuild
@@ -436,7 +452,14 @@ sudo systemctl start ephemeral-runners-images    # or wait for the weekly rebuil
 
 `preload-config` reads:
 
-- the Playwright version from a `package-lock.json`;
+- the Node.js version from a `.nvmrc` or `.node-version`, when it's a major
+  or exact version (`24`, `v24.11.1`); for anything else, such as `lts/*`,
+  it stops and asks you to set `node` by hand;
+- from a `package-lock.json`, the Playwright version, and the packages
+  `npm ci` would download on the VMs: those from `registry.npmjs.org` with a
+  SHA-512 integrity, leaving out links, bundled packages and those for
+  another platform than Linux x64 with glibc. They need a Node.js version
+  too; without one it leaves them out and says so;
 - every `name@sha256:<digest>` image reference from any file you give it.
 
 Edit the result as you like; `preload.example.toml` lists every setting. Run
@@ -445,16 +468,39 @@ it again when those pins change.
 **A list that falls behind costs time, never correctness.** A job whose pins
 differ downloads what it needs, as it would without preloading:
 
+- `setup-node` uses a preloaded Node.js only for a version spec it
+  satisfies. A job that asks for an exact version the image lacks downloads
+  it.
+- A job that asks for a range, such as `24`, gets the newest version in it
+  that the image holds, as on GitHub's hosted runners, which preload Node.js
+  too. To always get the newest release, set `check-latest: true`:
+  `setup-node` then looks the version up first and downloads it if the
+  image's is older.
+- `npm ci` reads a package from the cache only under the integrity its
+  lockfile gives. A package that isn't there, or whose bytes differ,
+  downloads, so a changed lockfile only means its new packages download.
 - Playwright reuses a browser only when its revision matches and its download
   completed.
 - Docker finds an image locally only under the digest the job asks for.
 
+A job that restores `~/.npm` from the Actions cache (`setup-node`'s
+`cache: npm`) still works, over the preloaded one, but it downloads that
+cache again; a job on these runners can leave it out.
+
 Each item is best effort. One that fails, or takes over 15 minutes (20 for
-all items together), is left out of the image. A mistake in the file itself
-never stops the controller, which doesn't read it; `check` and image builds
-report it. The image service's log
+all items together), is left out of the image. Node.js and the npm packages
+go first, since they take the least time and help the most jobs. The build
+log has each item's time on its `EPH-PRELOAD-TOOK` line. A mistake in the
+file itself never stops the controller, which doesn't read it; `check` and
+image builds report it. The image service's log
 (`journalctl -u ephemeral-runners-images`) and the build log
 (`images/<name>.build.log`) say which items were left out.
+
+**What Node.js and npm packages cost,** measured outside an image build:
+Node.js 24 is a 32 MB download that unpacks to about 220 MB. A lockfile of
+about 1,000 entries, 830 packages once filtered, fills about 240 MB of npm
+cache, which `npm cache add` downloaded in about 20 seconds on a fast
+connection. A build's own times are on its `EPH-PRELOAD-TOOK` lines.
 
 Each build records what its image preloads beside it, in
 `images/<name>.preload`. `check`, which `install.sh` runs too, warns about

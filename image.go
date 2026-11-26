@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"embed"
@@ -34,6 +35,10 @@ const (
 	buildCPU      = 4
 	buildMemoryMB = 8192
 )
+
+// Where preload.sh's npm item finds the packages, which are too many to
+// pass as its arguments.
+const npmPackagesGuestPath = "/var/lib/eph-build/npm-packages"
 
 var ubuntuImageRE = regexp.MustCompile(`^ubuntu-(\d{2}\.\d{2})$`)
 
@@ -84,6 +89,7 @@ func buildImage(ctx context.Context, log *slog.Logger, q *QEMU, h HostConfig, pr
 	}
 
 	log.Info("Provisioning image", slog.String("ubuntu", version), slog.String("runner", runner.Version), slog.Int("diskGB", diskGB),
+		slog.Any("preloadNode", preload.Node), slog.Int("preloadNPMPackages", len(preload.NPMPackages)),
 		slog.Any("preloadPlaywright", preload.Playwright), slog.Int("preloadDockerImages", len(preload.DockerImages)))
 	console, err := os.Create(filepath.Join(buildDir, "console.log"))
 	if err != nil {
@@ -300,6 +306,20 @@ func cloudConfig(version string, runner runnerRelease, preload Preload) ([]byte,
 	// can read it unconditionally.
 	fmt.Fprintf(&b, "  - path: /var/lib/eph-build/preload\n    permissions: '0644'\n    encoding: b64\n    content: %s\n",
 		base64.StdEncoding.EncodeToString([]byte(preload.guestList())))
+	// Compressed, since a lockfile's list runs to hundreds of KB and its
+	// URLs repeat a lot.
+	if list := preload.npmPackageList(); list != "" {
+		var gz bytes.Buffer
+		w := gzip.NewWriter(&gz)
+		if _, err := io.WriteString(w, list); err != nil {
+			return nil, err
+		}
+		if err := w.Close(); err != nil {
+			return nil, err
+		}
+		fmt.Fprintf(&b, "  - path: %s\n    permissions: '0644'\n    encoding: gz+b64\n    content: %s\n",
+			npmPackagesGuestPath, base64.StdEncoding.EncodeToString(gz.Bytes()))
+	}
 	fmt.Fprintf(&b, "runcmd:\n  - [bash, /var/lib/eph-build/guest/provision.sh, %q, %q, %q]\n", version, runner.Version, runner.SHA256)
 	b.WriteString("power_state:\n  mode: poweroff\n  timeout: 60\n  condition: true\n")
 	return b.Bytes(), nil

@@ -41,8 +41,9 @@ commands:
            input; ephemeral-runners-vm@.service runs it, not you
   preload-config <file>...
            print a preload.toml with the pins found in the files: the
-           Playwright version of a package-lock.json, and every image
-           pinned by digest
+           Playwright version and npm packages of a package-lock.json,
+           the Node.js version of a .nvmrc or .node-version, and every
+           image pinned by digest
 
 The config dir holds host.toml and preload.toml (both optional) and
 deployments/<name>.toml.
@@ -76,7 +77,7 @@ func main() {
 			flag.Usage()
 			os.Exit(2)
 		}
-		if err := writePreloadConfig(os.Stdout, flag.Args()[1:]); err != nil {
+		if err := writePreloadConfig(os.Stdout, os.Stderr, flag.Args()[1:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -312,7 +313,8 @@ func check(ctx context.Context, cfg *Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	log.Info("Preload for image builds", slog.Any("playwright", preload.Playwright), slog.Int("dockerImages", len(preload.DockerImages)))
+	log.Info("Preload for image builds", slog.Any("node", preload.Node), slog.Int("npmPackages", len(preload.NPMPackages)),
+		slog.Any("playwright", preload.Playwright), slog.Int("dockerImages", len(preload.DockerImages)))
 	checkPreloadRecords(log, cfg, preload)
 	for _, d := range cfg.Deployments {
 		client, err := newClient(ctx, d)

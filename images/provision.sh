@@ -97,12 +97,14 @@ while read -r kind args; do
 	[[ -n $kind ]] || continue
 	left=$((deadline - SECONDS))
 	((left < 15 * 60)) || left=$((15 * 60))
+	start=$SECONDS
 	# shellcheck disable=SC2086 # one word per argument
 	if ((left > 0)) && timeout -k 30s "$left" bash "$guest/preload.sh" "$kind" $args </dev/null; then
 		echo "EPH-PRELOAD-OK $kind $args" >/dev/console
 	else
 		echo "EPH-PRELOAD-FAILED $kind $args" >/dev/console
 	fi
+	echo "EPH-PRELOAD-TOOK $((SECONDS - start))s $kind $args" >/dev/console
 done </var/lib/eph-build/preload
 # A package install cut short must not reach jobs. Finish or repair it; if
 # apt still isn't consistent, the build fails and the old image stays.
