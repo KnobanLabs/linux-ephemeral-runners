@@ -530,10 +530,10 @@ minutes 33 seconds of their 20-minute total:
 So Node.js and the npm packages add about 0.47 GB to an image and under half
 a minute to its build. Times depend on the host's connection and CPU; a
 build's own are on its `EPH-PRELOAD-TOOK` lines. The same image, built on a
-host that gives image builds a low CPU weight behind its other busy
-services, took 45 minutes, well inside a build's 70-minute limit. Its items
-took 4 minutes 37 seconds of their 20 minutes: Node.js and the npm packages
-22 seconds, and the slowest, Playwright's browsers, 177 seconds.
+host that gives image builds a low CPU weight behind its other services,
+took 45 minutes of a build's 70-minute limit. Its items took 4 minutes 37
+seconds of their 20 minutes: Node.js and the npm packages 22 seconds, and
+the slowest, Playwright's browsers, 177 seconds.
 
 ## Operating
 
