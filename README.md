@@ -129,9 +129,11 @@ afterwards, so workflows don't change when the host or the maintainer does.
 - **Disk:** about 15 GB per golden image, plus what running jobs write.
   Overlays are copy-on-write. [Preloading](#preloading) adds its unpacked
   size to each image, and up to three times that while one is rebuilt (the
-  old image, the build's disk and the new image): for example about 0.45 GB
-  for Node.js and a lockfile's 830 npm packages, so up to 1.4 GB during a
-  rebuild.
+  old image, the build's disk and the new image): for example about 0.47 GB
+  for Node.js 24 and a lockfile's 832 npm packages, so up to 1.4 GB during a
+  rebuild. The image [measured under Preloading](#what-preloading-costs),
+  with Playwright's browsers and 15 container images as well, is 15.5 GiB,
+  so up to about 47 GiB during a rebuild.
 - **RAM and CPU:** whatever you budget for VMs (see [Capacity](#capacity)),
   plus what the host's own services need.
 
@@ -496,12 +498,6 @@ image builds report it. The image service's log
 (`journalctl -u ephemeral-runners-images`) and the build log
 (`images/<name>.build.log`) say which items were left out.
 
-**What Node.js and npm packages cost,** measured outside an image build:
-Node.js 24 is a 32 MB download that unpacks to about 220 MB. A lockfile of
-about 1,000 entries, 830 packages once filtered, fills about 240 MB of npm
-cache, which `npm cache add` downloaded in about 20 seconds on a fast
-connection. A build's own times are on its `EPH-PRELOAD-TOOK` lines.
-
 Each build records what its image preloads beside it, in
 `images/<name>.preload`. `check`, which `install.sh` runs too, warns about
 each image that doesn't preload what `preload.toml` lists now: one built
@@ -512,6 +508,26 @@ them, counts as preloading nothing until it's rebuilt.
 **Whatever you preload is in every job's VM**, for every deployment on the
 host. Preload only public things. The build has no registry credentials, and
 nothing it pulls should need any.
+
+### What preloading costs
+
+Measured in one image build on a 16-core host, preloading Node.js 24, a
+lockfile's 832 npm packages, Playwright's three browsers and 15 container
+images. The build took 15 minutes 46 seconds, and the image uses 15.5 GiB of
+disk (`qemu-img info`'s disk size). Most of the build is the provisioning
+every image gets, with or without preloading: the first item started about
+13 minutes in. The items took 2 minutes 33 seconds of their 20-minute total:
+
+| Item | Time | Size in the image |
+|---|---|---|
+| Node.js 24 (24.22.3) | 2 s | about 220 MB unpacked, from a 32 MB download |
+| 832 npm packages | 21 s | 245 MB of npm cache |
+| Playwright 1.63.0: Chromium, Firefox, WebKit | 50 s | not measured on its own |
+| 15 container images | 80 s, 2–22 s each | not measured on its own |
+
+So Node.js and the npm packages add about 0.47 GB to an image and under half
+a minute to its build. Times depend most on the host's connection; a build's
+own are on its `EPH-PRELOAD-TOOK` lines.
 
 ## Operating
 
