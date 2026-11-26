@@ -186,7 +186,7 @@ afterwards, so workflows don't change when the host or the maintainer does.
 
    This installs QEMU and the other packages it needs, creates the
    `ephrunner` and `ephrunner-vm` users, loads the firewall, builds any
-   golden image that's missing (a quarter of an hour or so each), and
+   golden image that's missing (a quarter of an hour or more each), and
    checks everything together (config, keys, images, the VMs' user, GitHub
    access, budget). Only if that passes does it install the config and
    (re)start the service. Pass several configs to install several
@@ -389,7 +389,7 @@ sudo systemctl set-property system-ephemeralrunners.slice MemoryMax=124G
 
 A pool's `max_runners` is an upper bound on top of the budgets, and jobs
 beyond what fits wait in GitHub's queue. Image builds (weekly, about 4 vCPUs
-and 8 GB for a quarter of an hour or so) run outside the budget: their
+and 8 GB for a quarter of an hour or more) run outside the budget: their
 downloads and conversions at low priority, and their VM with the job VMs.
 
 ### Sizing pools like GitHub-hosted runners
@@ -528,8 +528,12 @@ minutes 33 seconds of their 20-minute total:
 | 15 container images | 80 s, 2–22 s each | not measured on its own |
 
 So Node.js and the npm packages add about 0.47 GB to an image and under half
-a minute to its build. Times depend most on the host's connection; a build's
-own are on its `EPH-PRELOAD-TOOK` lines.
+a minute to its build. Times depend on the host's connection and CPU; a
+build's own are on its `EPH-PRELOAD-TOOK` lines. The same image, built on a
+host that gives image builds a low CPU weight behind its other busy
+services, took 45 minutes, well inside a build's 70-minute limit. Its items
+took 4 minutes 37 seconds of their 20 minutes: Node.js and the npm packages
+22 seconds, and the slowest, Playwright's browsers, 177 seconds.
 
 ## Operating
 
